@@ -72,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cricket-scorer-debug-${{ github.run_number }}
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/cricket-score-by-aus.apk
           retention-days: 30
 
       # ── 9. Print download hint ─────────────────────────────────
