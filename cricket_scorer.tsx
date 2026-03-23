@@ -705,7 +705,7 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           <span style={{ fontSize:22 }}>🏏</span>
           <span style={{ fontSize:16, fontWeight:700, color:"var(--txt)" }}>
-            {tab === "Score" ? `${batTeam} · Inn ${curInn}` : "Cricket Scorer"}
+            {tab === "Score" ? `${batTeam} · Inn ${curInn}` : "Howzat 🏏"}
           </span>
         </div>
         {tab === "Score" && (
@@ -819,6 +819,58 @@ export default function App() {
               }}>
               <Icon.Plus /> Start Match
             </button>
+
+            {/* About card */}
+            <div style={{
+              marginTop:20, marginBottom:4,
+              background:"var(--bg-card)", borderRadius:"var(--radius)",
+              border:"1px solid var(--bdr-2)", overflow:"hidden",
+            }}>
+              {/* Banner */}
+              <div style={{
+                background:"linear-gradient(135deg,#0f4019,#1a6b2a)",
+                padding:"20px 20px 16px",
+                display:"flex", alignItems:"center", gap:14,
+              }}>
+                <div style={{
+                  width:52, height:52, borderRadius:"50%",
+                  background:"rgba(255,255,255,0.15)",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:28, flexShrink:0,
+                }}>🏏</div>
+                <div>
+                  <div style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.3px" }}>Howzat</div>
+                  <div style={{ color:"rgba(255,255,255,0.65)", fontSize:12, marginTop:2 }}>Cricket Scoring App · v1.0</div>
+                </div>
+              </div>
+
+              {/* Info rows */}
+              <div style={{ padding:"14px 20px 18px", display:"flex", flexDirection:"column", gap:12 }}>
+                {[
+                  { icon:"👤", label:"Developer", value:"Aman Ullah Shaikh" },
+                  { icon:"✉️", label:"Email",     value:"shaikhg11@hotmail.com" },
+                  { icon:"📱", label:"Platform",  value:"Android · Web (PWA)" },
+                  { icon:"🗄️", label:"Storage",   value:"IndexedDB (offline-first)" },
+                  { icon:"☁️", label:"Sync",      value:"REST API (configurable)" },
+                ].map(row => (
+                  <div key={row.label} style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <span style={{ fontSize:18, width:24, textAlign:"center", flexShrink:0 }}>{row.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:10, color:"var(--txt-3)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{row.label}</div>
+                      <div style={{ fontSize:14, color:"var(--txt)", fontWeight:500, marginTop:1 }}>{row.value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Footer */}
+              <div style={{
+                borderTop:"1px solid var(--bdr-2)", padding:"10px 20px",
+                fontSize:11, color:"var(--txt-3)", textAlign:"center",
+              }}>
+                Built with React · Vite · Capacitor
+              </div>
+            </div>
           </div>
         )}
 

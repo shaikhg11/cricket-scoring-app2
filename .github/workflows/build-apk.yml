@@ -67,16 +67,20 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
-      # ── 8. Upload artifact ─────────────────────────────────────
+      # ── 8. Rename APK to howzat ────────────────────────────────
+      - name: Rename APK
+        run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/howzat-debug.apk
+
+      # ── 9. Upload artifact ─────────────────────────────────────
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: cricket-scorer-debug-${{ github.run_number }}
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: howzat-${{ github.run_number }}
+          path: android/app/build/outputs/apk/debug/howzat-debug.apk
           retention-days: 30
 
-      # ── 9. Print download hint ─────────────────────────────────
+      # ── 10. Print download hint ────────────────────────────────
       - name: APK ready
         run: |
-          echo "✅ APK built successfully!"
-          echo "Download from: Actions → this run → Artifacts → cricket-scorer-debug-${{ github.run_number }}"
+          echo "✅ Howzat APK built successfully!"
+          echo "Download from: Actions → this run → Artifacts → howzat-${{ github.run_number }}"
