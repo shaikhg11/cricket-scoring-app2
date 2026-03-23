@@ -39,3 +39,4 @@ https-
 
 # Claude Code internal settings
 .claude/
+.claude/settings.local.json
