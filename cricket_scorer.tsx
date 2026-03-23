@@ -59,6 +59,9 @@ interface Delivery {
   runs: number; extra: string | null;
   isWicket: boolean; freeHit: boolean;
   batterIdx: number; bowlerIdx: number;
+  dismissalType?: string | null;   // Bowled / Caught / Stumped / Run Out / Hit Wicket / Retired
+  fielderIdx?: number | null;      // fielder who took catch / run-out
+  batsmanOutIdx?: number | null;   // actual batter out (may differ for run-outs)
 }
 interface InningsState {
   runs: number; wickets: number;
@@ -100,7 +103,13 @@ function computeInnings(dels: Delivery[], inn: 1 | 2): InningsState {
     if (d.isWicket) {
       s.wickets++;
       const next = Math.max(s.batterA, s.batterB) + 1;
-      if (s.onStrike === 0) s.batterA = next; else s.batterB = next;
+      if (d.batsmanOutIdx != null) {
+        if (d.batsmanOutIdx === s.batterA) s.batterA = next;
+        else if (d.batsmanOutIdx === s.batterB) s.batterB = next;
+        else { if (s.onStrike === 0) s.batterA = next; else s.batterB = next; }
+      } else {
+        if (s.onStrike === 0) s.batterA = next; else s.batterB = next;
+      }
     }
 
     const label = d.isWicket ? "W"
@@ -187,6 +196,150 @@ function AnimOverlay({ type, onDone }: { type: string | null; onDone: () => void
       }}>{c.label}</div>
       <div style={{ color:"rgba(255,255,255,0.65)", fontSize:18, marginTop:12, fontWeight:500 }}>{c.sub}</div>
       <div style={{ color:"rgba(255,255,255,0.35)", fontSize:12, marginTop:32 }}>tap to dismiss</div>
+    </div>
+  );
+}
+
+// ── Dismissal types ──────────────────────────────────────────────
+const DISMISSAL_TYPES = [
+  { id: "Bowled",     icon: "🎯", needFielder: false },
+  { id: "Caught",     icon: "🙌", needFielder: true  },
+  { id: "Stumped",    icon: "🧤", needFielder: true  },
+  { id: "Run Out",    icon: "🏃", needFielder: true  },
+  { id: "Hit Wicket", icon: "💥", needFielder: false },
+  { id: "Retired",    icon: "🚶", needFielder: false },
+];
+
+// ── WicketModal ──────────────────────────────────────────────────
+function WicketModal({ striker, nonStr, strikerIdx, nonStrIdx, bowling, freeHit, onConfirm, onClose }: {
+  striker: string; nonStr: string; strikerIdx: number; nonStrIdx: number;
+  bowling: string[]; freeHit: boolean;
+  onConfirm: (runs: number, dismissalType: string, fielderIdx: number | null, outBatterIdx: number) => void;
+  onClose: () => void;
+}) {
+  const [dismissalType, setDismissalType] = useState("Bowled");
+  const [fielderIdx,    setFielderIdx]    = useState<number | null>(null);
+  const [outBatterIdx,  setOutBatterIdx]  = useState<number>(strikerIdx);
+  const [runsScored,    setRunsScored]    = useState(0);
+
+  const dt = DISMISSAL_TYPES.find(d => d.id === dismissalType)!;
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.72)",
+      display:"flex", alignItems:"flex-end", justifyContent:"center",
+    }} onClick={onClose}>
+      <div className="slide-up" onClick={e => e.stopPropagation()} style={{
+        background:"var(--bg-card)", borderRadius:"var(--radius-lg) var(--radius-lg) 0 0",
+        padding:"20px 20px calc(20px + env(safe-area-inset-bottom,0px))",
+        width:"100%", maxWidth:480, borderTop:"2px solid var(--red)",
+        maxHeight:"88vh", overflowY:"auto",
+      }}>
+        <div style={{ width:36, height:4, background:"var(--bdr)", borderRadius:99, margin:"0 auto 14px" }} />
+        <div style={{ fontSize:17, fontWeight:800, color:"var(--red)", marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
+          🔴 Wicket details
+        </div>
+
+        {freeHit && (
+          <div style={{ background:"rgba(234,179,8,0.15)", border:"1px solid var(--gold)", borderRadius:"var(--radius-sm)", padding:"8px 12px", fontSize:13, color:"var(--gold)", fontWeight:600, marginBottom:12 }}>
+            ⭐ Free Hit — only Run Out is valid
+          </div>
+        )}
+
+        {/* Who is out */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Who is out?</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {[
+              { label:"⚡ On strike", name: striker, idx: strikerIdx },
+              { label:"Non-striker",  name: nonStr,  idx: nonStrIdx  },
+            ].map(b => (
+              <button key={b.idx} onClick={() => setOutBatterIdx(b.idx)} style={{
+                padding:"11px 10px", borderRadius:"var(--radius-sm)", cursor:"pointer", textAlign:"left",
+                border: outBatterIdx===b.idx ? "2px solid var(--red)" : "1.5px solid var(--bdr)",
+                background: outBatterIdx===b.idx ? "var(--red-lt)" : "var(--bg-input)",
+                color: outBatterIdx===b.idx ? "var(--red)" : "var(--txt-2)",
+                fontSize:13, fontWeight:700,
+              }}>
+                <div style={{ fontSize:10, opacity:0.65, marginBottom:3 }}>{b.label}</div>
+                <div style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{b.name}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* How out */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>How out?</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+            {DISMISSAL_TYPES.map(d => (
+              <button key={d.id} onClick={() => { if (!(freeHit && d.id !== "Run Out")) setDismissalType(d.id); }} style={{
+                padding:"10px 4px", borderRadius:"var(--radius-sm)", cursor:"pointer",
+                border: dismissalType===d.id ? "2px solid var(--red)" : "1.5px solid var(--bdr)",
+                background: dismissalType===d.id ? "var(--red-lt)" : "var(--bg-input)",
+                color: dismissalType===d.id ? "var(--red)" : "var(--txt-2)",
+                fontSize:11, fontWeight:700, textAlign:"center",
+                display:"flex", flexDirection:"column", alignItems:"center", gap:4,
+                opacity: freeHit && d.id !== "Run Out" ? 0.3 : 1,
+                minHeight:52,
+              }}>
+                <span style={{ fontSize:20 }}>{d.icon}</span>
+                <span>{d.id}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Fielder */}
+        {dt.needFielder && (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:11, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+              {dismissalType==="Caught" ? "Caught by" : dismissalType==="Stumped" ? "Stumped by (WK)" : "Run out by"}
+            </div>
+            <select value={fielderIdx ?? ""} onChange={e => setFielderIdx(e.target.value==="" ? null : +e.target.value)}>
+              <option value="">— Select fielder —</option>
+              {bowling.map((p, i) => <option key={i} value={i}>{p}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Runs (run-out only) */}
+        {dismissalType === "Run Out" && (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:11, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Runs completed before run-out</div>
+            <div style={{ display:"flex", gap:8 }}>
+              {[0,1,2,3].map(r => (
+                <button key={r} onClick={() => setRunsScored(r)} style={{
+                  flex:1, aspectRatio:"1", borderRadius:"50%", fontSize:16, fontWeight:700, minHeight:44,
+                  border: runsScored===r ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
+                  background: runsScored===r ? "var(--green)" : "var(--bg-input)",
+                  color: runsScored===r ? "#fff" : "var(--txt)", cursor:"pointer",
+                }}>{r}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8 }}>
+          <button onClick={() => onConfirm(runsScored, dismissalType, fielderIdx, outBatterIdx)} style={{
+            padding:"13px 10px", fontSize:15, fontWeight:700,
+            borderRadius:"var(--radius-sm)", cursor:"pointer",
+            background:"var(--red)", color:"#fff", border:"none",
+            display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+            minHeight:44,
+          }}>
+            ✓ Confirm Wicket
+          </button>
+          <button onClick={onClose} style={{
+            padding:"13px 10px", fontSize:14, fontWeight:600,
+            borderRadius:"var(--radius-sm)", cursor:"pointer",
+            background:"var(--bg-input)", color:"var(--txt-2)", border:"1.5px solid var(--bdr)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            minHeight:44,
+          }}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -383,7 +536,8 @@ export default function App() {
   const maxBalls = match.overs * 6;
   const played   = inn.overs * 6 + inn.balls;
   const [forceEnded, setForceEnded] = useState(false);
-  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmEnd,      setConfirmEnd]      = useState(false);
+  const [wicketModalOpen, setWicketModalOpen] = useState(false);
   const isComplete = played >= maxBalls || inn.wickets >= 10 || forceEnded;
   const lastDel  = deliveries.filter(d => d.innings === curInn).at(-1) ?? null;
   const batting  = curInn === 1 ? match.playersA : match.playersB;
@@ -411,16 +565,23 @@ export default function App() {
     setToast(msg); setTimeout(() => setToast(""), 2600);
   }, []);
 
-  async function addDelivery(runs: number, isWicket = false) {
+  async function addDelivery(
+    runs: number,
+    isWicket = false,
+    wicketInfo?: { dismissalType: string; fielderIdx: number | null; batsmanOutIdx: number | null } | null,
+  ) {
     if (isComplete) return;
     const fh = inn.freeHitNext;
-    if (isWicket && fh) { showToast("Can't get out on a Free Hit!"); return; }
+    if (isWicket && fh && wicketInfo?.dismissalType !== "Run Out") { showToast("Can't get out on a Free Hit!"); return; }
     const d: Delivery = {
       id: Date.now(), matchId: match.id, innings: curInn,
       over: inn.overs, ball: inn.balls,
       runs, extra: selExtra, isWicket, freeHit: fh,
       batterIdx: inn.onStrike === 0 ? inn.batterA : inn.batterB,
       bowlerIdx,
+      dismissalType: isWicket ? (wicketInfo?.dismissalType ?? null) : null,
+      fielderIdx:    isWicket ? (wicketInfo?.fielderIdx  ?? null) : null,
+      batsmanOutIdx: isWicket ? (wicketInfo?.batsmanOutIdx ?? null) : null,
     };
     setDeliveries(prev => [...prev, d]);
     setSelExtra(null);
@@ -507,6 +668,18 @@ export default function App() {
     }}>
       <AnimOverlay type={anim} onDone={() => setAnim(null)} />
       <EditBallModal delivery={editOpen ? lastDel : null} onSave={handleEditSave} onUndo={undoLast} onClose={() => setEditOpen(false)} />
+      {wicketModalOpen && (
+        <WicketModal
+          striker={striker} nonStr={nonStr}
+          strikerIdx={strikerIdx} nonStrIdx={nonStrIdx}
+          bowling={bowling} freeHit={inn.freeHitNext}
+          onConfirm={(runs, dismissalType, fielderIdx, outBatterIdx) => {
+            setWicketModalOpen(false);
+            addDelivery(runs, true, { dismissalType, fielderIdx, batsmanOutIdx: outBatterIdx });
+          }}
+          onClose={() => setWicketModalOpen(false)}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
@@ -794,13 +967,13 @@ export default function App() {
                   minHeight:58, display:"flex", alignItems:"center", justifyContent:"center",
                 }}>•</button>
                 <button
-                  onClick={() => addDelivery(0, true)}
+                  onClick={() => { if (!isComplete && inn.wickets < 10) setWicketModalOpen(true); }}
                   disabled={isComplete || inn.wickets >= 10}
                   style={{
                     aspectRatio:"1", borderRadius:"var(--radius-sm)", fontSize:15, fontWeight:800,
                     border:"2px solid var(--red)", background:"var(--red-lt)", color:"var(--red)",
                     cursor:"pointer",
-                    opacity: (isComplete || inn.freeHitNext || inn.wickets>=10) ? 0.35 : 1,
+                    opacity: (isComplete || inn.wickets>=10) ? 0.35 : 1,
                     minHeight:58, display:"flex", alignItems:"center", justifyContent:"center",
                   }}>W</button>
               </div>
@@ -950,8 +1123,14 @@ export default function App() {
                         </div>
                         <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                           {ovDels.map((d, i) => {
+                            const bPlayers2 = histInn===1 ? match.playersB : match.playersA;
                             const bName = bPlayers[d.batterIdx] ?? `P${d.batterIdx+1}`;
-                            const desc = d.isWicket ? "WICKET"
+                            const outName = d.batsmanOutIdx != null ? (bPlayers[d.batsmanOutIdx] ?? `P${d.batsmanOutIdx+1}`) : bName;
+                            const fielderName = d.fielderIdx != null ? (bPlayers2[d.fielderIdx] ?? `P${d.fielderIdx+1}`) : null;
+                            const wicketDesc = d.dismissalType
+                              ? `${outName} — ${d.dismissalType}${fielderName ? ` (${fielderName})` : ""}${d.runs ? ` +${d.runs}` : ""}`
+                              : "WICKET";
+                            const desc = d.isWicket ? wicketDesc
                               : d.extra ? `${d.extra}${d.runs ? " +"+d.runs : ""}` : `${d.runs} run${d.runs!==1?"s":""}`;
                             return (
                               <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
