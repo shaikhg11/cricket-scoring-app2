@@ -37,6 +37,13 @@ yarn-error.log*
 # Misc
 https-
 
+# .NET / C# build artifacts
+api/bin/
+api/obj/
+api/*.user
+api/.vs/
+api/Migrations/
+
 # Claude Code internal settings
 .claude/
 .claude/settings.local.json
