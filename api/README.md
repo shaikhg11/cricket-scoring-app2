@@ -5,7 +5,7 @@ Stores match data from the **Howzat** cricket scoring app and exposes it for ret
 
 ---
 
-## Endpoints
+## Endpointsa
 
 | Method | Route | Description |
 |--------|-------|-------------|

@@ -524,6 +524,10 @@ export default function App() {
   const [selExtra,      setSelExtra]     = useState<string|null>(null);
   const [editTeam,      setEditTeam]     = useState<"A"|"B">("A");
   const [bowlerIdx,     setBowlerIdx]    = useState(0);
+  const [bowlerManuallySet, setBowlerManuallySet] = useState(false);
+  const [bowlerAutoMsg,     setBowlerAutoMsg]     = useState<string>("");
+  const prevOversRef   = useRef<number>(-1);
+  const prevCurInnRef  = useRef<1|2>(1);
   const [anim,          setAnim]         = useState<string|null>(null);
   const [editOpen,      setEditOpen]     = useState(false);
   const [snapshots,     setSnapshots]    = useState<Snapshot[]>([]);
@@ -565,6 +569,56 @@ export default function App() {
   const showToast = useCallback((msg: string) => {
     setToast(msg); setTimeout(() => setToast(""), 2600);
   }, []);
+
+  // ── Auto-rotate bowler after every completed over ────────────────
+  useEffect(() => {
+    // Reset when innings changes
+    if (curInn !== prevCurInnRef.current) {
+      prevCurInnRef.current = curInn;
+      prevOversRef.current  = -1;
+      setBowlerIdx(0);
+      setBowlerManuallySet(false);
+      setBowlerAutoMsg("");
+      return;
+    }
+
+    const currentOvers = inn.overs;
+
+    // Guard: skip the very first render (prevOversRef is -1)
+    if (prevOversRef.current === -1) {
+      prevOversRef.current = currentOvers;
+      return;
+    }
+
+    if (currentOvers > prevOversRef.current) {
+      // An over just completed
+      setBowlerManuallySet(prev => {
+        if (!prev) {
+          // Auto-advance to the next player in order
+          setBowlerIdx(bi => {
+            const bowling2 = curInn === 1 ? match.playersB : match.playersA;
+            const next = (bi + 1) % bowling2.length;
+            const msg = `🔄 Over ${currentOvers} done — auto: ${bowling2[next]}`;
+            setBowlerAutoMsg(msg);
+            showToast(msg);
+            return next;
+          });
+        } else {
+          // User already picked — keep their choice, just toast
+          setBowlerIdx(bi => {
+            const bowling2 = curInn === 1 ? match.playersB : match.playersA;
+            const msg = `✅ Over ${currentOvers} done — ${bowling2[bi]}`;
+            setBowlerAutoMsg(msg);
+            showToast(msg);
+            return bi;
+          });
+        }
+        return false; // reset the manual flag for the upcoming over
+      });
+      prevOversRef.current = currentOvers;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inn.overs, curInn]);
 
   async function addDelivery(
     runs: number,
@@ -990,7 +1044,12 @@ export default function App() {
                   {forceEnded ? ` (${inn.overs}.${inn.balls} overs)` : inn.wickets >= 10 ? " (All out)" : ` (${match.overs} overs)`}
                 </div>
                 {curInn === 1 && (
-                  <button onClick={() => setCurInn(2)} style={{
+                  <button onClick={() => {
+                    setCurInn(2);
+                    setBowlerIdx(0);
+                    setBowlerManuallySet(false);
+                    setBowlerAutoMsg("");
+                  }} style={{
                     ...btn("green"), width:"100%", marginTop:10, justifyContent:"center",
                   }}>Start Innings 2 →</button>
                 )}
@@ -999,10 +1058,38 @@ export default function App() {
 
             {/* Bowler */}
             <Card style={{ marginBottom:10 }}>
-              <SLabel>Bowler</SLabel>
-              <select value={bowlerIdx} onChange={e => setBowlerIdx(+e.target.value)}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                <SLabel>Bowler</SLabel>
+                {bowlerManuallySet && (
+                  <span style={{
+                    fontSize:11, fontWeight:700, color:"var(--green)",
+                    background:"var(--green-lt)", padding:"2px 8px", borderRadius:99,
+                  }}>✏️ Manually set</span>
+                )}
+                {!bowlerManuallySet && bowlerAutoMsg && (
+                  <span style={{
+                    fontSize:11, fontWeight:600, color:"var(--txt-3)",
+                    padding:"2px 6px",
+                  }}>🔄 Auto</span>
+                )}
+              </div>
+              <select
+                value={bowlerIdx}
+                onChange={e => {
+                  setBowlerIdx(+e.target.value);
+                  setBowlerManuallySet(true);
+                  setBowlerAutoMsg("");
+                }}
+              >
                 {bowling.map((p, i) => <option key={i} value={i}>{p}</option>)}
               </select>
+              {inn.balls === 0 && inn.overs > 0 && (
+                <div style={{ fontSize:11, color:"var(--txt-3)", marginTop:5 }}>
+                  {bowlerManuallySet
+                    ? `Over ${inn.overs} · ${bowling[bowlerIdx]} to bowl`
+                    : `Over ${inn.overs} · auto-selected ${bowling[bowlerIdx]} — change if needed`}
+                </div>
+              )}
             </Card>
 
             {/* Extras */}

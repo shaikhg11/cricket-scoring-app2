@@ -71,7 +71,7 @@ public class SyncController(CricketDbContext db) : ControllerBase
         var existingIds = await db.Deliveries
             .Where(d => d.MatchId == match.Id)
             .Select(d => d.Id)
-            .ToHashSetAsync();
+            .ToListAsync();
 
         var toAdd = payload.Deliveries
             .Where(d => !existingIds.Contains(d.Id))

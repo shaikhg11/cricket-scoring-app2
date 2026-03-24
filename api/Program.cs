@@ -49,6 +49,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Cricket Scoring API v1"));
 }
 
+// Redirect root to Swagger in development
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
+
 app.UseCors();
 app.UseAuthorization();
 app.MapControllers();
