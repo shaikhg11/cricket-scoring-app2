@@ -530,6 +530,7 @@ export default function App() {
   const [toast,         setToast]        = useState("");
   const [syncSt,        setSyncSt]       = useState<""|"syncing"|"ok"|"err">("");
   const [histInn,       setHistInn]      = useState<1|2>(1);
+  const [histView,      setHistView]     = useState<"Scorecard"|"Overs">("Scorecard");
   const cameraRef = useRef<HTMLInputElement>(null);
 
   const inn      = computeInnings(deliveries, curInn);
@@ -776,35 +777,62 @@ export default function App() {
             {/* Players */}
             <Card style={{ marginBottom:16 }}>
               <SLabel>Players</SLabel>
-              <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-                {(["A","B"] as const).map(t => (
-                  <button key={t} onClick={() => setEditTeam(t)} style={{
-                    flex:1, padding:"10px", borderRadius:"var(--radius-sm)", fontSize:14, fontWeight:600, cursor:"pointer",
-                    border: editTeam===t ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
-                    background: editTeam===t ? "var(--green-lt)" : "var(--bg-input)",
-                    color: editTeam===t ? "var(--green)" : "var(--txt-2)",
-                  }}>{t==="A" ? match.teamA : match.teamB}</button>
-                ))}
+              {/* Team tabs + Add Player */}
+              <div style={{ display:"flex", gap:6, marginBottom:12, alignItems:"stretch" }}>
+                {(["A","B"] as const).map(t => {
+                  const list = t==="A" ? match.playersA : match.playersB;
+                  return (
+                    <button key={t} onClick={() => setEditTeam(t)} style={{
+                      flex:1, padding:"10px", borderRadius:"var(--radius-sm)", fontSize:14, fontWeight:600, cursor:"pointer",
+                      border: editTeam===t ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
+                      background: editTeam===t ? "var(--green-lt)" : "var(--bg-input)",
+                      color: editTeam===t ? "var(--green)" : "var(--txt-2)",
+                      textAlign:"left" as const,
+                    }}>
+                      <div>{t==="A" ? match.teamA : match.teamB}</div>
+                      <div style={{ fontSize:11, marginTop:2, opacity:0.7 }}>{list.length} players</div>
+                    </button>
+                  );
+                })}
+                {(() => {
+                  const key = editTeam==="A" ? "playersA" : "playersB";
+                  const list = editTeam==="A" ? match.playersA : match.playersB;
+                  return list.length < 15 ? (
+                    <button
+                      onClick={() => setMatch(m => ({ ...m, [key]: [...list, `Player ${list.length+1}`] }))}
+                      style={{ padding:"0 14px", borderRadius:"var(--radius-sm)", cursor:"pointer", border:"1.5px dashed var(--green)", background:"var(--green-lt)", color:"var(--green)", fontSize:20, fontWeight:700, flexShrink:0 }}
+                    >+</button>
+                  ) : null;
+                })()}
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                {(editTeam==="A" ? match.playersA : match.playersB).map((p, i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{
-                      width:28, height:28, borderRadius:"50%",
-                      background:"var(--green)", color:"#fff",
-                      display:"flex", alignItems:"center", justifyContent:"center",
-                      fontSize:12, fontWeight:700, flexShrink:0,
-                    }}>{i+1}</span>
-                    <input
-                      value={p}
-                      onChange={e => {
-                        const key = editTeam==="A" ? "playersA" : "playersB";
-                        setMatch(m => { const a=[...m[key]]; a[i]=e.target.value; return {...m,[key]:a}; });
-                      }}
-                      style={{ fontSize:14 }}
-                    />
-                  </div>
-                ))}
+                {(editTeam==="A" ? match.playersA : match.playersB).map((p, i) => {
+                  const key = editTeam==="A" ? "playersA" : "playersB";
+                  const list = editTeam==="A" ? match.playersA : match.playersB;
+                  return (
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{
+                        width:28, height:28, borderRadius:"50%",
+                        background:"var(--green)", color:"#fff",
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:12, fontWeight:700, flexShrink:0,
+                      }}>{i+1}</span>
+                      <input
+                        value={p}
+                        onChange={e => {
+                          setMatch(m => { const a=[...m[key]]; a[i]=e.target.value; return {...m,[key]:a}; });
+                        }}
+                        style={{ fontSize:14, flex:1 }}
+                      />
+                      {list.length > 11 && (
+                        <button
+                          onClick={() => setMatch(m => { const a=[...m[key]]; a.splice(i,1); return {...m,[key]:a}; })}
+                          style={{ background:"var(--red-lt)", color:"var(--red)", border:"none", borderRadius:"var(--radius-sm)", width:28, height:28, fontSize:16, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}
+                        >×</button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </Card>
 
@@ -1132,16 +1160,141 @@ export default function App() {
               })}
             </div>
 
-            {/* Stats row */}
+            {/* Sub-tab: Scorecard | Overs */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
+              {(["Scorecard","Overs"] as const).map(v => (
+                <button key={v} onClick={() => setHistView(v)} style={{
+                  padding:"8px 0", borderRadius:"var(--radius-sm)", cursor:"pointer",
+                  fontSize:13, fontWeight:600, border:"none",
+                  background: histView===v ? "var(--green)" : "var(--bg-input)",
+                  color: histView===v ? "#fff" : "var(--txt-2)",
+                }}>{v}</button>
+              ))}
+            </div>
+
             {(() => {
               const s = computeInnings(deliveries, histInn);
-              const cnt = deliveries.filter(d=>d.innings===histInn).length;
-              if (!cnt) return (
+              const innDels = deliveries.filter(d => d.innings === histInn);
+              if (!innDels.length) return (
                 <div style={{ textAlign:"center", color:"var(--txt-3)", padding:"40px 0" }}>
                   <div style={{ fontSize:36 }}>📋</div>
                   <div style={{ marginTop:8 }}>No deliveries recorded</div>
                 </div>
               );
+
+              const bTeam    = histInn===1 ? match.playersA : match.playersB;
+              const bowlTeam = histInn===1 ? match.playersB : match.playersA;
+
+              if (histView === "Scorecard") {
+                // ── Batting stats ─────────────────────────────────
+                const batterIndices = [...new Set(innDels.map(d => d.batterIdx))];
+                const batStats = batterIndices.map(idx => {
+                  const myDels = innDels.filter(d => d.batterIdx === idx);
+                  const runs  = myDels.filter(d => d.extra !== "Bye" && d.extra !== "Leg Bye" && d.extra !== "Wide").reduce((a,d) => a + d.runs, 0);
+                  const balls = myDels.filter(d => d.extra !== "Wide").length;
+                  const fours = myDels.filter(d => d.runs === 4 && !d.extra).length;
+                  const sixes = myDels.filter(d => d.runs === 6).length;
+                  const sr    = balls > 0 ? ((runs / balls) * 100).toFixed(1) : "—";
+                  const wicketDel = innDels.find(d => d.isWicket && (d.batsmanOutIdx === idx || (d.batsmanOutIdx == null && d.batterIdx === idx)));
+                  const fldName   = wicketDel?.fielderIdx != null ? (bowlTeam[wicketDel.fielderIdx] ?? `P${wicketDel.fielderIdx+1}`) : null;
+                  const dismissal = wicketDel
+                    ? (wicketDel.dismissalType ?? "Out") + (fldName ? ` (${fldName})` : "")
+                    : "not out";
+                  return { idx, runs, balls, fours, sixes, sr, dismissal };
+                });
+
+                // ── Bowling stats ─────────────────────────────────
+                const bowlerIndices = [...new Set(innDels.map(d => d.bowlerIdx))];
+                const bowlStats = bowlerIndices.map(idx => {
+                  const myDels    = innDels.filter(d => d.bowlerIdx === idx);
+                  const legalDels = myDels.filter(d => d.extra !== "Wide" && d.extra !== "No Ball");
+                  const totalBalls = legalDels.length;
+                  const overs     = Math.floor(totalBalls / 6);
+                  const remBalls  = totalBalls % 6;
+                  const runs      = myDels.reduce((a,d) => a + d.runs + ((d.extra==="Wide"||d.extra==="No Ball")?1:0), 0);
+                  const wickets   = myDels.filter(d => d.isWicket && d.dismissalType !== "Run Out").length;
+                  let maidens = 0;
+                  for (const ov of [...new Set(myDels.map(d => d.over))]) {
+                    const ovDels  = myDels.filter(d => d.over === ov);
+                    const ovLegal = ovDels.filter(d => d.extra !== "Wide" && d.extra !== "No Ball");
+                    if (ovLegal.length < 6) continue;
+                    if (ovDels.reduce((a,d) => a + d.runs + ((d.extra==="Wide"||d.extra==="No Ball")?1:0), 0) === 0) maidens++;
+                  }
+                  const eco = totalBalls > 0 ? ((runs / totalBalls) * 6).toFixed(2) : "—";
+                  return { idx, overs, remBalls, runs, wickets, maidens, eco };
+                });
+
+                const colHdr: React.CSSProperties = { fontSize:10, color:"var(--txt-3)", fontWeight:700, textAlign:"right" as const };
+                const colVal: React.CSSProperties = { fontSize:13, fontWeight:600, textAlign:"right" as const };
+
+                return (
+                  <>
+                    {/* Batting */}
+                    <SLabel>Batting</SLabel>
+                    <Card style={{ marginBottom:12, padding:"12px 12px 4px" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 44px 36px 28px 28px 44px", gap:4, marginBottom:8, paddingBottom:6, borderBottom:"1px solid var(--bdr)" }}>
+                        <span style={{ fontSize:10, color:"var(--txt-3)", fontWeight:700 }}>BATTER</span>
+                        <span style={colHdr}>R</span>
+                        <span style={colHdr}>B</span>
+                        <span style={colHdr}>4s</span>
+                        <span style={colHdr}>6s</span>
+                        <span style={colHdr}>SR</span>
+                      </div>
+                      {batStats.map((b, i) => (
+                        <div key={b.idx} style={{ display:"grid", gridTemplateColumns:"1fr 44px 36px 28px 28px 44px", gap:4, paddingBottom:8, marginBottom: i < batStats.length-1 ? 8 : 0, borderBottom: i < batStats.length-1 ? "1px solid var(--bdr-2)" : "none" }}>
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:600 }}>{bTeam[b.idx] ?? `P${b.idx+1}`}</div>
+                            <div style={{ fontSize:10, color:"var(--txt-3)", marginTop:1 }}>{b.dismissal}</div>
+                          </div>
+                          <span style={{ ...colVal, color: b.runs >= 50 ? "var(--green)" : "var(--txt)" }}>{b.runs}</span>
+                          <span style={colVal}>{b.balls}</span>
+                          <span style={colVal}>{b.fours}</span>
+                          <span style={colVal}>{b.sixes}</span>
+                          <span style={{ ...colVal, fontSize:11 }}>{b.sr}</span>
+                        </div>
+                      ))}
+                    </Card>
+
+                    {/* Bowling */}
+                    <SLabel>Bowling</SLabel>
+                    <Card style={{ marginBottom:12, padding:"12px 12px 4px" }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 36px 28px 36px 28px 44px", gap:4, marginBottom:8, paddingBottom:6, borderBottom:"1px solid var(--bdr)" }}>
+                        <span style={{ fontSize:10, color:"var(--txt-3)", fontWeight:700 }}>BOWLER</span>
+                        <span style={colHdr}>O</span>
+                        <span style={colHdr}>M</span>
+                        <span style={colHdr}>R</span>
+                        <span style={colHdr}>W</span>
+                        <span style={colHdr}>ECO</span>
+                      </div>
+                      {bowlStats.map((b, i) => (
+                        <div key={b.idx} style={{ display:"grid", gridTemplateColumns:"1fr 36px 28px 36px 28px 44px", gap:4, paddingBottom:8, marginBottom: i < bowlStats.length-1 ? 8 : 0, borderBottom: i < bowlStats.length-1 ? "1px solid var(--bdr-2)" : "none" }}>
+                          <span style={{ fontSize:13, fontWeight:600 }}>{bowlTeam[b.idx] ?? `P${b.idx+1}`}</span>
+                          <span style={colVal}>{b.overs}{b.remBalls > 0 ? `.${b.remBalls}` : ""}</span>
+                          <span style={colVal}>{b.maidens}</span>
+                          <span style={colVal}>{b.runs}</span>
+                          <span style={{ ...colVal, color: b.wickets > 0 ? "var(--red)" : "var(--txt)" }}>{b.wickets}</span>
+                          <span style={{ ...colVal, fontSize:11 }}>{b.eco}</span>
+                        </div>
+                      ))}
+                    </Card>
+
+                    {/* Extras */}
+                    <SLabel>Extras</SLabel>
+                    <Card style={{ marginBottom:12 }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:4 }}>
+                        {([["Total",s.extras],["Wd",s.wides],["Nb",s.noBalls],["B",s.byes],["Lb",s.legByes]] as [string,number][]).map(([k,v]) => (
+                          <div key={k} style={{ textAlign:"center" }}>
+                            <div style={{ fontSize:10, color:"var(--txt-3)", fontWeight:700 }}>{k}</div>
+                            <div style={{ fontSize:20, fontWeight:800, marginTop:2 }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  </>
+                );
+              }
+
+              // ── Overs view ──────────────────────────────────────
               return (
                 <>
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:12 }}>
@@ -1158,13 +1311,11 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Over-by-over */}
                   {Array.from({ length: s.overs + (s.balls > 0 ? 1 : 0) }).map((_, ov) => {
-                    const ovDels = deliveries.filter(d=>d.innings===histInn && d.over===ov);
+                    const ovDels = innDels.filter(d => d.over===ov);
                     if (!ovDels.length) return null;
                     const ovRuns = ovDels.reduce((a,d) => a + d.runs + ((d.extra==="Wide"||d.extra==="No Ball")?1:0), 0);
                     const ovWkts = ovDels.filter(d=>d.isWicket).length;
-                    const bPlayers = histInn===1 ? match.playersA : match.playersB;
                     return (
                       <Card key={ov} style={{ marginBottom:8 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
@@ -1176,11 +1327,11 @@ export default function App() {
                         <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                           {ovDels.map((d, i) => {
                             const bPlayers2 = histInn===1 ? match.playersB : match.playersA;
-                            const bName = bPlayers[d.batterIdx] ?? `P${d.batterIdx+1}`;
-                            const outName = d.batsmanOutIdx != null ? (bPlayers[d.batsmanOutIdx] ?? `P${d.batsmanOutIdx+1}`) : bName;
-                            const fielderName = d.fielderIdx != null ? (bPlayers2[d.fielderIdx] ?? `P${d.fielderIdx+1}`) : null;
+                            const bName     = bTeam[d.batterIdx] ?? `P${d.batterIdx+1}`;
+                            const outName   = d.batsmanOutIdx != null ? (bTeam[d.batsmanOutIdx] ?? `P${d.batsmanOutIdx+1}`) : bName;
+                            const fldName   = d.fielderIdx != null ? (bPlayers2[d.fielderIdx] ?? `P${d.fielderIdx+1}`) : null;
                             const wicketDesc = d.dismissalType
-                              ? `${outName} — ${d.dismissalType}${fielderName ? ` (${fielderName})` : ""}${d.runs ? ` +${d.runs}` : ""}`
+                              ? `${outName} — ${d.dismissalType}${fldName ? ` (${fldName})` : ""}${d.runs ? ` +${d.runs}` : ""}`
                               : "WICKET";
                             const desc = d.isWicket ? wicketDesc
                               : d.extra ? `${d.extra}${d.runs ? " +"+d.runs : ""}` : `${d.runs} run${d.runs!==1?"s":""}`;
