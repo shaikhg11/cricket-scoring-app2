@@ -62,6 +62,8 @@ interface Delivery {
   dismissalType?: string | null;   // Bowled / Caught / Stumped / Run Out / Hit Wicket / Retired
   fielderIdx?: number | null;      // fielder who took catch / run-out
   batsmanOutIdx?: number | null;   // actual batter out (may differ for run-outs)
+  nextBatterIdx?: number | null;   // manually chosen incoming batter
+  battersCrossed?: boolean | null; // for Caught: did batters cross before catch?
 }
 interface InningsState {
   runs: number; wickets: number;
@@ -77,14 +79,18 @@ interface Match {
   id: string; teamA: string; teamB: string; overs: number;
   playersA: string[]; playersB: string[];
   apiUrl: string; synced: boolean;
+  battingFirst: "A" | "B";
+  tossWinner: string;
+  inn1BatterA: number; inn1BatterB: number;
+  inn2BatterA: number; inn2BatterB: number;
 }
 
 // ── Innings engine ───────────────────────────────────────────────
-function computeInnings(dels: Delivery[], inn: 1 | 2): InningsState {
+function computeInnings(dels: Delivery[], inn: 1 | 2, initA = 0, initB = 1): InningsState {
   const s: InningsState = {
     runs:0, wickets:0, overs:0, balls:0,
     extras:0, wides:0, noBalls:0, byes:0, legByes:0,
-    freeHitNext:false, batterA:0, batterB:1, onStrike:0, overDels:[],
+    freeHitNext:false, batterA:initA, batterB:initB, onStrike:0, overDels:[],
   };
   for (const d of dels.filter(d => d.innings === inn)) {
     const wide   = d.extra === "Wide";
@@ -102,7 +108,7 @@ function computeInnings(dels: Delivery[], inn: 1 | 2): InningsState {
 
     if (d.isWicket) {
       s.wickets++;
-      const next = Math.max(s.batterA, s.batterB) + 1;
+      const next = d.nextBatterIdx != null ? d.nextBatterIdx : Math.max(s.batterA, s.batterB) + 1;
       if (d.batsmanOutIdx != null) {
         if (d.batsmanOutIdx === s.batterA) s.batterA = next;
         else if (d.batsmanOutIdx === s.batterB) s.batterB = next;
@@ -110,6 +116,8 @@ function computeInnings(dels: Delivery[], inn: 1 | 2): InningsState {
       } else {
         if (s.onStrike === 0) s.batterA = next; else s.batterB = next;
       }
+      // Flip strike if batters crossed (odd runs, or explicitly crossed on 0)
+      if (d.runs % 2 === 1 || d.battersCrossed) s.onStrike = s.onStrike === 0 ? 1 : 0;
     }
 
     const label = d.isWicket ? "W"
@@ -142,9 +150,21 @@ function computeInnings(dels: Delivery[], inn: 1 | 2): InningsState {
 
 // ── Helpers ──────────────────────────────────────────────────────
 const mkPlayers = (n: number) => Array.from({ length: n }, (_, i) => `Player ${i+1}`);
+const DEFAULT_WHITES = [
+  "Faraz (C)", "Sajid Masroor", "Asad Shaikh (vc)", "Ahmad Umair", "Faizan",
+  "Hammad", "Moiz Khan", "Ali Khan", "Zaid Nawaz", "Huzaifa", "Ibrahim",
+];
+const DEFAULT_GREENS = [
+  "Zuhair (C)", "Umair Sheikh", "Ahsan Akhtar", "Faiz Faizan", "Aman Shaikh",
+  "Irfan Choudhary", "Nabil Farooq (vc)", "Saeed", "Ayyan", "Ammad", "Deen",
+];
+
 const initMatch = (): Match => ({
-  id: Date.now().toString(), teamA: "Team A", teamB: "Team B", overs: 20,
-  playersA: mkPlayers(11), playersB: mkPlayers(11), apiUrl: "http://aushaikh.runasp.net/api/sync", synced: false,
+  id: Date.now().toString(), teamA: "Whites", teamB: "Greens", overs: 20,
+  playersA: [...DEFAULT_WHITES], playersB: [...DEFAULT_GREENS],
+  apiUrl: "http://aushaikh.runasp.net/api/sync", synced: false,
+  battingFirst: "A", tossWinner: "",
+  inn1BatterA: 0, inn1BatterB: 1, inn2BatterA: 0, inn2BatterB: 1,
 });
 
 // ── SVG Icons ────────────────────────────────────────────────────
@@ -158,6 +178,8 @@ const Icon = {
   Sync:    () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
   Check:   () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>,
   Plus:    () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  Share:   () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
+  Info:    () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
 };
 
 // ── AnimOverlay ──────────────────────────────────────────────────
@@ -214,13 +236,14 @@ const DISMISSAL_TYPES = [
 function WicketModal({ striker, nonStr, strikerIdx, nonStrIdx, bowling, freeHit, onConfirm, onClose }: {
   striker: string; nonStr: string; strikerIdx: number; nonStrIdx: number;
   bowling: string[]; freeHit: boolean;
-  onConfirm: (runs: number, dismissalType: string, fielderIdx: number | null, outBatterIdx: number) => void;
+  onConfirm: (runs: number, dismissalType: string, fielderIdx: number | null, outBatterIdx: number, battersCrossed: boolean) => void;
   onClose: () => void;
 }) {
-  const [dismissalType, setDismissalType] = useState("Bowled");
-  const [fielderIdx,    setFielderIdx]    = useState<number | null>(null);
-  const [outBatterIdx,  setOutBatterIdx]  = useState<number>(strikerIdx);
-  const [runsScored,    setRunsScored]    = useState(0);
+  const [dismissalType,  setDismissalType]  = useState("Bowled");
+  const [fielderIdx,     setFielderIdx]     = useState<number | null>(null);
+  const [outBatterIdx,   setOutBatterIdx]   = useState<number>(strikerIdx);
+  const [runsScored,     setRunsScored]     = useState(0);
+  const [battersCrossed, setBattersCrossed] = useState(false);
 
   const dt = DISMISSAL_TYPES.find(d => d.id === dismissalType)!;
 
@@ -303,13 +326,15 @@ function WicketModal({ striker, nonStr, strikerIdx, nonStrIdx, bowling, freeHit,
           </div>
         )}
 
-        {/* Runs (run-out only) */}
-        {dismissalType === "Run Out" && (
+        {/* Runs (run-out or caught) */}
+        {(dismissalType === "Run Out" || dismissalType === "Caught") && (
           <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:11, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Runs completed before run-out</div>
+            <div style={{ fontSize:11, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+              {dismissalType === "Caught" ? "Runs scored before catch" : "Runs completed before run-out"}
+            </div>
             <div style={{ display:"flex", gap:8 }}>
               {[0,1,2,3].map(r => (
-                <button key={r} onClick={() => setRunsScored(r)} style={{
+                <button key={r} onClick={() => { setRunsScored(r); if (r !== 0) setBattersCrossed(false); }} style={{
                   flex:1, aspectRatio:"1", borderRadius:"50%", fontSize:16, fontWeight:700, minHeight:44,
                   border: runsScored===r ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
                   background: runsScored===r ? "var(--green)" : "var(--bg-input)",
@@ -320,9 +345,29 @@ function WicketModal({ striker, nonStr, strikerIdx, nonStrIdx, bowling, freeHit,
           </div>
         )}
 
+        {/* Batters crossed? (Caught + 0 runs only) */}
+        {dismissalType === "Caught" && runsScored === 0 && (
+          <div style={{ marginBottom:14 }}>
+            <button onClick={() => setBattersCrossed(v => !v)} style={{
+              width:"100%", padding:"12px 14px", borderRadius:"var(--radius-sm)", cursor:"pointer",
+              border: battersCrossed ? "2px solid var(--blue)" : "1.5px solid var(--bdr)",
+              background: battersCrossed ? "var(--blue-lt)" : "var(--bg-input)",
+              color: battersCrossed ? "var(--blue)" : "var(--txt-2)",
+              fontSize:14, fontWeight:700, textAlign:"left",
+              display:"flex", alignItems:"center", gap:10,
+            }}>
+              <span style={{ fontSize:20 }}>{battersCrossed ? "✅" : "⬜"}</span>
+              Batters crossed before catch
+            </button>
+            <div style={{ fontSize:11, color:"var(--txt-3)", marginTop:6, paddingLeft:4 }}>
+              If they crossed, non-striker takes strike; otherwise new batter faces
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8 }}>
-          <button onClick={() => onConfirm(runsScored, dismissalType, fielderIdx, outBatterIdx)} style={{
+          <button onClick={() => onConfirm(runsScored, dismissalType, fielderIdx, outBatterIdx, battersCrossed)} style={{
             padding:"13px 10px", fontSize:15, fontWeight:700,
             borderRadius:"var(--radius-sm)", cursor:"pointer",
             background:"var(--red)", color:"#fff", border:"none",
@@ -467,6 +512,7 @@ const NAV_ITEMS = [
   { id:"Score",   label:"Score",   IconC: Icon.Score   },
   { id:"History", label:"History", IconC: Icon.History },
   { id:"Photos",  label:"Photos",  IconC: Icon.Camera  },
+  { id:"About",   label:"About",   IconC: Icon.Info    },
 ] as const;
 type TabId = typeof NAV_ITEMS[number]["id"];
 
@@ -515,8 +561,317 @@ function OverDots({ dots }: { dots: OD[] }) {
   );
 }
 
+// ── NextBatterModal ───────────────────────────────────────────────
+function NextBatterModal({ batting, available, onConfirm, onClose }: {
+  batting: string[];
+  available: number[];
+  onConfirm: (idx: number) => void;
+  onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<number | null>(available[0] ?? null);
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:1050, background:"rgba(0,0,0,0.72)",
+      display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={onClose}>
+      <div className="slide-up" onClick={e => e.stopPropagation()} style={{
+        background:"var(--bg-card)", borderRadius:"var(--radius-lg) var(--radius-lg) 0 0",
+        padding:"20px 20px calc(20px + env(safe-area-inset-bottom,0px))",
+        width:"100%", maxWidth:480, maxHeight:"80vh", overflowY:"auto",
+        borderTop:"2px solid var(--green)",
+      }}>
+        <div style={{ width:36, height:4, background:"var(--bdr)", borderRadius:99, margin:"0 auto 14px" }} />
+        <div style={{ fontSize:17, fontWeight:800, color:"var(--green)", marginBottom:4 }}>🏏 Next batter</div>
+        <div style={{ fontSize:13, color:"var(--txt-3)", marginBottom:14 }}>Select the incoming batter</div>
+
+        {available.length === 0 ? (
+          <div style={{ textAlign:"center", color:"var(--txt-3)", padding:"20px 0", fontSize:15 }}>
+            All out — no batters remaining
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+            {available.map(i => (
+              <button key={i} onClick={() => setSelected(i)} style={{
+                display:"flex", alignItems:"center", gap:12,
+                padding:"12px 14px", borderRadius:"var(--radius-sm)", cursor:"pointer",
+                border: selected === i ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
+                background: selected === i ? "var(--green-lt)" : "var(--bg-input)",
+                color: selected === i ? "var(--green)" : "var(--txt-2)",
+              }}>
+                <span style={{
+                  width:28, height:28, borderRadius:"50%", flexShrink:0, fontSize:12, fontWeight:700,
+                  background: selected === i ? "var(--green)" : "var(--bdr)",
+                  color: selected === i ? "#fff" : "var(--txt-3)",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                }}>{i+1}</span>
+                <span style={{ fontSize:15, fontWeight:600 }}>{batting[i] ?? `Player ${i+1}`}</span>
+                {selected === i && <span style={{ marginLeft:"auto", fontSize:18 }}>✓</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8 }}>
+          <button
+            onClick={() => selected != null && onConfirm(selected)}
+            disabled={selected == null || available.length === 0}
+            style={{ ...btn("green"), justifyContent:"center", fontSize:15, padding:14, opacity: selected == null ? 0.4 : 1 }}
+          >✓ Confirm</button>
+          <button onClick={onClose} style={{ ...btn("ghost"), justifyContent:"center" }}>Skip</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── LiveView (read-only spectator) ───────────────────────────────
+function LiveView({ matchId }: { matchId: string }) {
+  const [lMatch,  setLMatch]  = useState<Match | null>(null);
+  const [lDels,   setLDels]   = useState<Delivery[]>([]);
+  const [lInn,    setLInn]    = useState<1|2>(1);
+  const [loading, setLoading] = useState(true);
+  const [lastAt,  setLastAt]  = useState("");
+  const BASE = "http://aushaikh.runasp.net/api";
+
+  const load = useCallback(async () => {
+    try {
+      const [mr, dr] = await Promise.all([
+        fetch(`${BASE}/matches/${matchId}`),
+        fetch(`${BASE}/matches/${matchId}/deliveries`),
+      ]);
+      if (!mr.ok) return;
+      const md = await mr.json();
+      const dd: any[] = await dr.json();
+      const m: Match = {
+        id: md.id, teamA: md.teamA, teamB: md.teamB, overs: md.overs,
+        playersA: md.playersA, playersB: md.playersB,
+        apiUrl: BASE + "/sync", synced: true,
+        battingFirst: md.battingFirst ?? "A",
+        tossWinner: md.tossWinner ?? "",
+        inn1BatterA: md.inn1BatterA ?? 0, inn1BatterB: md.inn1BatterB ?? 1,
+        inn2BatterA: md.inn2BatterA ?? 0, inn2BatterB: md.inn2BatterB ?? 1,
+      };
+      const dels: Delivery[] = dd.map((d: any) => ({ ...d, matchId: md.id }));
+      setLMatch(m);
+      setLDels(dels);
+      setLInn(dels.some(d => d.innings === 2) ? 2 : 1);
+      setLastAt(new Date().toLocaleTimeString());
+    } catch {}
+    finally { setLoading(false); }
+  }, [matchId]);
+
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+
+  if (loading) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100dvh", gap:16, color:"var(--txt)" }}>
+      <div style={{ fontSize:48 }}>🏏</div>
+      <div style={{ fontSize:18, fontWeight:700 }}>Loading match…</div>
+    </div>
+  );
+  if (!lMatch) return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100dvh", gap:12, color:"var(--txt)" }}>
+      <div style={{ fontSize:48 }}>❌</div>
+      <div style={{ fontWeight:700 }}>Match not found</div>
+      <div style={{ fontSize:13, color:"var(--txt-3)" }}>ID: {matchId}</div>
+    </div>
+  );
+
+  const batting = lInn === 1
+    ? (lMatch.battingFirst === "A" ? lMatch.playersA : lMatch.playersB)
+    : (lMatch.battingFirst === "A" ? lMatch.playersB : lMatch.playersA);
+  const bowling = lInn === 1
+    ? (lMatch.battingFirst === "A" ? lMatch.playersB : lMatch.playersA)
+    : (lMatch.battingFirst === "A" ? lMatch.playersA : lMatch.playersB);
+  const initA = lInn === 1 ? lMatch.inn1BatterA : lMatch.inn2BatterA;
+  const initB = lInn === 1 ? lMatch.inn1BatterB : lMatch.inn2BatterB;
+  const inn = computeInnings(lDels, lInn, initA, initB);
+  const striker = batting[inn.onStrike === 0 ? inn.batterA : inn.batterB] ?? "—";
+  const nonStr  = batting[inn.onStrike === 0 ? inn.batterB : inn.batterA] ?? "—";
+  const batTeam = lInn === 1
+    ? (lMatch.battingFirst === "A" ? lMatch.teamA : lMatch.teamB)
+    : (lMatch.battingFirst === "A" ? lMatch.teamB : lMatch.teamA);
+  const curBowler = bowling[lDels.filter(d => d.innings === lInn).at(-1)?.bowlerIdx ?? 0] ?? "—";
+  const played = inn.overs * 6 + inn.balls;
+  const rr = played > 0 ? (inn.runs / (played / 6)).toFixed(2) : "—";
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100dvh", maxWidth:480, margin:"0 auto", background:"var(--bg)" }}>
+      {/* Header */}
+      <div style={{ background:"var(--bg-card)", borderBottom:"1px solid var(--bdr)", padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:20 }}>🏏</span>
+          <span style={{ fontSize:15, fontWeight:700 }}>{lMatch.teamA} vs {lMatch.teamB}</span>
+        </div>
+        <button onClick={load} style={{ ...btn("ghost"), padding:"6px 12px", fontSize:12 }}>↻ Refresh</button>
+      </div>
+
+      <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+        {/* Innings tabs */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+          {([1,2] as const).map(n => {
+            const s = computeInnings(lDels, n, n===1 ? lMatch.inn1BatterA : lMatch.inn2BatterA, n===1 ? lMatch.inn1BatterB : lMatch.inn2BatterB);
+            const tName = n===1 ? (lMatch.battingFirst==="A" ? lMatch.teamA : lMatch.teamB) : (lMatch.battingFirst==="A" ? lMatch.teamB : lMatch.teamA);
+            return (
+              <button key={n} onClick={() => setLInn(n)} style={{
+                padding:10, borderRadius:"var(--radius-sm)", cursor:"pointer",
+                border: lInn===n ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
+                background: lInn===n ? "var(--green-lt)" : "var(--bg-input)",
+                color: lInn===n ? "var(--green)" : "var(--txt-2)", textAlign:"left",
+              }}>
+                <div style={{ fontSize:11, fontWeight:600 }}>Inn {n} · {tName}</div>
+                <div style={{ fontSize:17, fontWeight:700 }}>{s.runs}/{s.wickets}</div>
+                <div style={{ fontSize:11 }}>{s.overs}.{s.balls} ov</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Scoreboard */}
+        <div style={{ background:"linear-gradient(135deg,#0f4019,#1a6b2a)", borderRadius:"var(--radius-lg)", padding:"20px", color:"#fff", marginBottom:10 }}>
+          <div style={{ fontSize:12, opacity:0.7, marginBottom:4 }}>{batTeam} batting · Inn {lInn}</div>
+          <div style={{ fontSize:52, fontWeight:900, lineHeight:1 }}>{inn.runs}<span style={{ fontSize:32, opacity:0.7 }}>/{inn.wickets}</span></div>
+          <div style={{ fontSize:14, opacity:0.8, marginTop:4 }}>{inn.overs}.{inn.balls} / {lMatch.overs} ov · RR {rr}</div>
+          <div style={{ fontSize:11, opacity:0.55, marginTop:2 }}>Extras {inn.extras} · Wd:{inn.wides} Nb:{inn.noBalls}</div>
+
+          <div style={{ marginTop:12, background:"rgba(255,255,255,0.1)", borderRadius:"var(--radius-sm)", overflow:"hidden" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 12px", borderBottom:"1px solid rgba(255,255,255,0.08)" }}>
+              <div><div style={{ fontSize:10, opacity:0.6 }}>⚡ On strike</div><div style={{ fontWeight:700 }}>{striker}</div></div>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 12px" }}>
+              <div><div style={{ fontSize:10, opacity:0.6 }}>Non-striker</div><div style={{ fontWeight:600, fontSize:14 }}>{nonStr}</div></div>
+            </div>
+          </div>
+
+          {inn.overDels.length > 0 && (
+            <div style={{ marginTop:10 }}><OverDots dots={inn.overDels} /></div>
+          )}
+        </div>
+
+        {/* Bowler */}
+        <Card style={{ marginBottom:10 }}>
+          <SLabel>Current bowler</SLabel>
+          <div style={{ fontSize:15, fontWeight:700 }}>{curBowler}</div>
+        </Card>
+
+        <div style={{ textAlign:"center", fontSize:12, color:"var(--txt-3)", marginTop:4 }}>
+          Live · Auto-refreshes every 30s · Last: {lastAt}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PreMatchModal ────────────────────────────────────────────────
+function PreMatchModal({ match, showToss, inn, onConfirm, onClose }: {
+  match: Match;
+  showToss: boolean;
+  inn: 1 | 2;
+  onConfirm: (p: { battingFirst: "A"|"B"; tossWinner: string; batterA: number; batterB: number; bowlerIdx: number }) => void;
+  onClose: () => void;
+}) {
+  const [battingFirst, setBattingFirst] = useState<"A"|"B">(match.battingFirst);
+  const [tossWinner,   setTossWinner]   = useState(match.tossWinner || match.teamA);
+  const [batterA,      setBatterA]      = useState(inn === 1 ? match.inn1BatterA : match.inn2BatterA);
+  const [batterB,      setBatterB]      = useState(inn === 1 ? match.inn1BatterB : match.inn2BatterB);
+  const [bowlerIdx,    setBowlerIdx]    = useState(0);
+
+  const batting = battingFirst === "A" ? match.playersA : match.playersB;
+  const bowling = battingFirst === "A" ? match.playersB : match.playersA;
+
+  const selA = (i: number) => { setBatterA(i); if (i === batterB) setBatterB(i === 0 ? 1 : 0); };
+  const selB = (i: number) => { setBatterB(i); if (i === batterA) setBatterA(i === 0 ? 1 : 0); };
+
+  const teamLabel = (k: "A"|"B") => k === "A" ? match.teamA : match.teamB;
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:1100, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div className="slide-up" style={{
+        background:"var(--bg-card)", borderRadius:"var(--radius-lg) var(--radius-lg) 0 0",
+        padding:"20px 20px calc(20px + env(safe-area-inset-bottom,0px))",
+        width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto",
+        borderTop:"2px solid var(--green)",
+      }}>
+        <div style={{ width:36, height:4, background:"var(--bdr)", borderRadius:99, margin:"0 auto 14px" }} />
+        <div style={{ fontSize:17, fontWeight:800, color:"var(--green)", marginBottom:16 }}>
+          🏏 {showToss ? "Match Setup" : `Innings ${inn} Setup`}
+        </div>
+
+        {showToss && (
+          <>
+            <div style={{ marginBottom:14 }}>
+              <SLabel>Toss won by</SLabel>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {(["A","B"] as const).map(k => (
+                  <button key={k} onClick={() => setTossWinner(teamLabel(k))} style={{
+                    padding:"11px 10px", borderRadius:"var(--radius-sm)", cursor:"pointer",
+                    border: tossWinner === teamLabel(k) ? "2px solid var(--gold)" : "1.5px solid var(--bdr)",
+                    background: tossWinner === teamLabel(k) ? "rgba(234,179,8,0.15)" : "var(--bg-input)",
+                    color: tossWinner === teamLabel(k) ? "var(--gold)" : "var(--txt-2)",
+                    fontSize:14, fontWeight:700,
+                  }}>{tossWinner === teamLabel(k) ? "🪙 " : ""}{teamLabel(k)}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <SLabel>Batting first</SLabel>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {(["A","B"] as const).map(k => (
+                  <button key={k} onClick={() => setBattingFirst(k)} style={{
+                    padding:"11px 10px", borderRadius:"var(--radius-sm)", cursor:"pointer",
+                    border: battingFirst === k ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
+                    background: battingFirst === k ? "var(--green-lt)" : "var(--bg-input)",
+                    color: battingFirst === k ? "var(--green)" : "var(--txt-2)",
+                    fontSize:14, fontWeight:700,
+                  }}>🏏 {teamLabel(k)}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div style={{ marginBottom:14 }}>
+          <SLabel>Opening batters — {battingFirst === "A" ? match.teamA : match.teamB}</SLabel>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            <div>
+              <div style={{ fontSize:11, color:"var(--txt-3)", marginBottom:4 }}>⚡ On strike</div>
+              <select value={batterA} onChange={e => selA(+e.target.value)}>
+                {batting.map((p, i) => <option key={i} value={i} disabled={i === batterB}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize:11, color:"var(--txt-3)", marginBottom:4 }}>Non-striker</div>
+              <select value={batterB} onChange={e => selB(+e.target.value)}>
+                {batting.map((p, i) => <option key={i} value={i} disabled={i === batterA}>{p}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <SLabel>Opening bowler — {battingFirst === "A" ? match.teamB : match.teamA}</SLabel>
+          <select value={bowlerIdx} onChange={e => setBowlerIdx(+e.target.value)}>
+            {bowling.map((p, i) => <option key={i} value={i}>{p}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:8 }}>
+          <button onClick={() => onConfirm({ battingFirst, tossWinner, batterA, batterB, bowlerIdx })} style={{
+            ...btn("green"), justifyContent:"center", fontSize:15, padding:14,
+          }}>✓ Start Scoring</button>
+          <button onClick={onClose} style={{ ...btn("ghost"), justifyContent:"center" }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ─────────────────────────────────────────────────────
 export default function App() {
+  const liveMatchId = new URLSearchParams(window.location.search).get("liveMatch");
+  if (liveMatchId) return <LiveView matchId={liveMatchId} />;
+  return <ScoreApp />;
+}
+
+function ScoreApp() {
   const [tab,           setTab]          = useState<TabId>("Setup");
   const [match,         setMatch]        = useState<Match>(initMatch);
   const [deliveries,    setDeliveries]   = useState<Delivery[]>([]);
@@ -535,10 +890,16 @@ export default function App() {
   const [syncSt,        setSyncSt]       = useState<""|"syncing"|"ok"|"err">("");
   const [histInn,       setHistInn]      = useState<1|2>(1);
   const [histView,      setHistView]     = useState<"Scorecard"|"Overs">("Scorecard");
-  const [resuming,      setResuming]     = useState(false);
+  const [resuming,        setResuming]       = useState(false);
+  const [matchInProgress, setMatchInProgress] = useState(false);
+  const [preMatchModal,   setPreMatchModal]   = useState<null | { inn: 1|2; showToss: boolean }>(null);
+  const [pendingWicket,   setPendingWicket]   = useState<null | { runs:number; dismissalType:string; fielderIdx:number|null; batsmanOutIdx:number; battersCrossed:boolean }>(null);
+  const [confirmNewMatch, setConfirmNewMatch] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
 
-  const inn      = computeInnings(deliveries, curInn);
+  const initA = curInn === 1 ? match.inn1BatterA : match.inn2BatterA;
+  const initB = curInn === 1 ? match.inn1BatterB : match.inn2BatterB;
+  const inn      = computeInnings(deliveries, curInn, initA, initB);
   const maxBalls = match.overs * 6;
   const played   = inn.overs * 6 + inn.balls;
   const [forceEnded, setForceEnded] = useState(false);
@@ -546,13 +907,20 @@ export default function App() {
   const [wicketModalOpen, setWicketModalOpen] = useState(false);
   const isComplete = played >= maxBalls || inn.wickets >= 10 || forceEnded;
   const lastDel  = deliveries.filter(d => d.innings === curInn).at(-1) ?? null;
-  const batting  = curInn === 1 ? match.playersA : match.playersB;
-  const bowling  = curInn === 1 ? match.playersB : match.playersA;
+  // batting/bowling respects who bats first
+  const batting  = curInn === 1
+    ? (match.battingFirst === "A" ? match.playersA : match.playersB)
+    : (match.battingFirst === "A" ? match.playersB : match.playersA);
+  const bowling  = curInn === 1
+    ? (match.battingFirst === "A" ? match.playersB : match.playersA)
+    : (match.battingFirst === "A" ? match.playersA : match.playersB);
   const strikerIdx  = inn.onStrike === 0 ? inn.batterA : inn.batterB;
   const nonStrIdx   = inn.onStrike === 0 ? inn.batterB : inn.batterA;
   const striker     = batting[strikerIdx]  ?? "—";
   const nonStr      = batting[nonStrIdx]   ?? "—";
-  const batTeam     = curInn === 1 ? match.teamA : match.teamB;
+  const batTeam     = curInn === 1
+    ? (match.battingFirst === "A" ? match.teamA : match.teamB)
+    : (match.battingFirst === "A" ? match.teamB : match.teamA);
   const runRate     = played > 0 ? (inn.runs / (played / 6)).toFixed(2) : "—";
 
   function getBatterStats(idx: number) {
@@ -600,6 +968,12 @@ export default function App() {
           playersB: matchData.playersB,
           apiUrl: savedApiUrl,
           synced: true,
+          battingFirst: matchData.battingFirst ?? "A",
+          tossWinner: matchData.tossWinner ?? "",
+          inn1BatterA: matchData.inn1BatterA ?? 0,
+          inn1BatterB: matchData.inn1BatterB ?? 1,
+          inn2BatterA: matchData.inn2BatterA ?? 0,
+          inn2BatterB: matchData.inn2BatterB ?? 1,
         });
 
         const loadedDels: Delivery[] = delsData.map(d => ({
@@ -617,10 +991,12 @@ export default function App() {
           dismissalType: d.dismissalType,
           fielderIdx:    d.fielderIdx,
           batsmanOutIdx: d.batsmanOutIdx,
+          nextBatterIdx: d.nextBatterIdx ?? null,
         }));
 
         setDeliveries(loadedDels);
         setCurInn(loadedDels.some(d => d.innings === 2) ? 2 : 1);
+        setMatchInProgress(true);
         setTab("Score");
         showToast("Match resumed from server ✓");
       } catch {
@@ -685,7 +1061,8 @@ export default function App() {
   async function addDelivery(
     runs: number,
     isWicket = false,
-    wicketInfo?: { dismissalType: string; fielderIdx: number | null; batsmanOutIdx: number | null } | null,
+    wicketInfo?: { dismissalType: string; fielderIdx: number | null; batsmanOutIdx: number | null; battersCrossed?: boolean } | null,
+    nextBatterIdx?: number | null,
   ) {
     if (isComplete) return;
     const fh = inn.freeHitNext;
@@ -699,6 +1076,8 @@ export default function App() {
       dismissalType: isWicket ? (wicketInfo?.dismissalType ?? null) : null,
       fielderIdx:    isWicket ? (wicketInfo?.fielderIdx  ?? null) : null,
       batsmanOutIdx: isWicket ? (wicketInfo?.batsmanOutIdx ?? null) : null,
+      nextBatterIdx: isWicket ? (nextBatterIdx ?? null) : null,
+      battersCrossed: isWicket ? (wicketInfo?.battersCrossed ?? null) : null,
     };
     const newDeliveries = [...deliveries, d];
     setDeliveries(newDeliveries);
@@ -729,17 +1108,17 @@ export default function App() {
     syncNow(newDeliveries);
   }
 
-  async function syncNow(dels: Delivery[]) {
-    if (!match.apiUrl) return;
+  async function syncNow(dels: Delivery[], m: Match = match) {
+    if (!m.apiUrl) return;
     setSyncSt("syncing");
     try {
       const payload = {
-        match, deliveries: dels,
-        innings1: computeInnings(dels, 1),
-        innings2: computeInnings(dels, 2),
+        match: m, deliveries: dels,
+        innings1: computeInnings(dels, 1, m.inn1BatterA, m.inn1BatterB),
+        innings2: computeInnings(dels, 2, m.inn2BatterA, m.inn2BatterB),
         syncedAt: new Date().toISOString(),
       };
-      const r = await fetch(match.apiUrl, {
+      const r = await fetch(m.apiUrl, {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify(payload),
       });
@@ -781,35 +1160,80 @@ export default function App() {
     if (cameraRef.current) cameraRef.current.value = "";
   }
 
-  async function handleStartMatch() {
-    setTab("Score");
-    await dbPut("matches", match);
+  async function handleFinaliseEnd() {
+    setForceEnded(true);
+    setConfirmEnd(false);
+    localStorage.removeItem("cricket_activeMatchId");
+    localStorage.removeItem("cricket_apiUrl");
+    try {
+      await syncNow(deliveries);
+      showToast("Match ended & synced ✓");
+    } catch {
+      showToast("Match ended (sync failed)");
+    }
+  }
 
-    if (match.apiUrl) {
-      localStorage.setItem("cricket_activeMatchId", match.id);
-      localStorage.setItem("cricket_apiUrl", match.apiUrl);
-      setSyncSt("syncing");
-      try {
-        const payload = {
-          match, deliveries: [],
-          innings1: computeInnings([], 1),
-          innings2: computeInnings([], 2),
-          syncedAt: new Date().toISOString(),
-        };
-        const r = await fetch(match.apiUrl, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setSyncSt("ok");
-        setMatch(m => ({ ...m, synced: true }));
-        showToast("Match started & synced ✓");
-        setTimeout(() => setSyncSt(""), 3000);
-      } catch (e: any) {
-        setSyncSt("err");
-        showToast("Sync failed: " + (e as Error).message);
-        setTimeout(() => setSyncSt(""), 3000);
-      }
+  async function handleNewMatch() {
+    // Sync and clear the current match before resetting
+    localStorage.removeItem("cricket_activeMatchId");
+    localStorage.removeItem("cricket_apiUrl");
+    if (deliveries.length > 0) {
+      try { await syncNow(deliveries); } catch {}
+    }
+    setDeliveries([]);
+    setCurInn(1);
+    setMatch(initMatch());
+    setSnapshots([]);
+    setForceEnded(false);
+    setMatchInProgress(false);
+    setConfirmNewMatch(false);
+    setBowlerIdx(0);
+    setBowlerManuallySet(false);
+    setBowlerAutoMsg("");
+    setTab("Setup");
+  }
+
+  async function handleStartMatch() {
+    await dbPut("matches", match);
+    setPreMatchModal({ inn: 1, showToss: true });
+  }
+
+  async function handlePreMatchConfirm(p: { battingFirst:"A"|"B"; tossWinner:string; batterA:number; batterB:number; bowlerIdx:number }) {
+    const isInn2 = preMatchModal?.inn === 2;
+    const updated: Match = {
+      ...match,
+      battingFirst: isInn2 ? match.battingFirst : p.battingFirst,
+      tossWinner:   isInn2 ? match.tossWinner   : p.tossWinner,
+      inn1BatterA:  isInn2 ? match.inn1BatterA  : p.batterA,
+      inn1BatterB:  isInn2 ? match.inn1BatterB  : p.batterB,
+      inn2BatterA:  isInn2 ? p.batterA          : match.inn2BatterA,
+      inn2BatterB:  isInn2 ? p.batterB          : match.inn2BatterB,
+    };
+    setMatch(updated);
+    setBowlerIdx(p.bowlerIdx);
+    setBowlerManuallySet(true);
+    if (isInn2) {
+      setCurInn(2);
+      setBowlerAutoMsg("");
+    }
+    setMatchInProgress(true);
+    setPreMatchModal(null);
+    setTab("Score");
+    await dbPut("matches", updated);
+    if (updated.apiUrl) {
+      localStorage.setItem("cricket_activeMatchId", updated.id);
+      localStorage.setItem("cricket_apiUrl", updated.apiUrl);
+      syncNow(deliveries, updated);
+    }
+  }
+
+  async function handleShare() {
+    const url = `${window.location.origin}${window.location.pathname}?liveMatch=${match.id}`;
+    if (navigator.share) {
+      navigator.share({ title: `${match.teamA} vs ${match.teamB}`, text: "Follow the match live!", url }).catch(() => {});
+    } else {
+      try { await navigator.clipboard.writeText(url); showToast("Link copied! ✓"); }
+      catch { showToast(url); }
     }
   }
 
@@ -838,19 +1262,50 @@ export default function App() {
         </div>
       )}
 
+      {preMatchModal && (
+        <PreMatchModal
+          match={match} showToss={preMatchModal.showToss} inn={preMatchModal.inn}
+          onConfirm={handlePreMatchConfirm}
+          onClose={() => setPreMatchModal(null)}
+        />
+      )}
       <EditBallModal delivery={editOpen ? lastDel : null} onSave={handleEditSave} onUndo={undoLast} onClose={() => setEditOpen(false)} />
       {wicketModalOpen && (
         <WicketModal
           striker={striker} nonStr={nonStr}
           strikerIdx={strikerIdx} nonStrIdx={nonStrIdx}
           bowling={bowling} freeHit={inn.freeHitNext}
-          onConfirm={(runs, dismissalType, fielderIdx, outBatterIdx) => {
+          onConfirm={(runs, dismissalType, fielderIdx, outBatterIdx, battersCrossed) => {
             setWicketModalOpen(false);
-            addDelivery(runs, true, { dismissalType, fielderIdx, batsmanOutIdx: outBatterIdx });
+            setPendingWicket({ runs, dismissalType, fielderIdx, batsmanOutIdx: outBatterIdx, battersCrossed });
           }}
           onClose={() => setWicketModalOpen(false)}
         />
       )}
+      {pendingWicket && (() => {
+        const dismissed = new Set(
+          deliveries.filter(d => d.innings === curInn && d.isWicket)
+            .map(d => d.batsmanOutIdx ?? d.batterIdx)
+        );
+        dismissed.add(pendingWicket.batsmanOutIdx);
+        const remaining = new Set([strikerIdx, nonStrIdx]);
+        remaining.delete(pendingWicket.batsmanOutIdx);
+        const available = batting.map((_,i) => i).filter(i => !dismissed.has(i) && !remaining.has(i));
+        return (
+          <NextBatterModal
+            batting={batting}
+            available={available}
+            onConfirm={nextIdx => {
+              addDelivery(pendingWicket.runs, true, pendingWicket, nextIdx);
+              setPendingWicket(null);
+            }}
+            onClose={() => {
+              addDelivery(pendingWicket.runs, true, pendingWicket, null);
+              setPendingWicket(null);
+            }}
+          />
+        );
+      })()}
 
       {/* Toast */}
       {toast && (
@@ -880,18 +1335,28 @@ export default function App() {
           </span>
         </div>
         {tab === "Score" && (
-          <button onClick={handleSync} style={{
-            display:"flex", alignItems:"center", gap:6,
-            padding:"7px 14px", borderRadius:99,
-            border:`1.5px solid ${syncSt==="ok" ? "var(--green)" : syncSt==="err" ? "var(--red)" : "var(--bdr)"}`,
-            background: syncSt==="ok" ? "var(--green-lt)" : syncSt==="err" ? "var(--red-lt)" : "var(--bg-input)",
-            color: syncSt==="ok" ? "var(--green)" : syncSt==="err" ? "var(--red)" : "var(--txt-2)",
-            fontSize:13, fontWeight:600, cursor:"pointer",
-            opacity: syncSt==="syncing" ? 0.6 : 1,
-          }}>
-            {syncSt==="ok" ? <Icon.Check /> : <Icon.Sync />}
-            {syncSt==="syncing" ? "Syncing…" : syncSt==="ok" ? "Synced" : syncSt==="err" ? "Retry" : "Sync"}
-          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <button onClick={handleShare} style={{
+              display:"flex", alignItems:"center", gap:4,
+              padding:"7px 12px", borderRadius:99,
+              border:"1.5px solid var(--bdr)", background:"var(--bg-input)",
+              color:"var(--txt-2)", fontSize:13, fontWeight:600, cursor:"pointer",
+            }}>
+              <Icon.Share /> Share
+            </button>
+            <button onClick={handleSync} style={{
+              display:"flex", alignItems:"center", gap:6,
+              padding:"7px 14px", borderRadius:99,
+              border:`1.5px solid ${syncSt==="ok" ? "var(--green)" : syncSt==="err" ? "var(--red)" : "var(--bdr)"}`,
+              background: syncSt==="ok" ? "var(--green-lt)" : syncSt==="err" ? "var(--red-lt)" : "var(--bg-input)",
+              color: syncSt==="ok" ? "var(--green)" : syncSt==="err" ? "var(--red)" : "var(--txt-2)",
+              fontSize:13, fontWeight:600, cursor:"pointer",
+              opacity: syncSt==="syncing" ? 0.6 : 1,
+            }}>
+              {syncSt==="ok" ? <Icon.Check /> : <Icon.Sync />}
+              {syncSt==="syncing" ? "Syncing…" : syncSt==="ok" ? "Synced" : syncSt==="err" ? "Retry" : "Sync"}
+            </button>
+          </div>
         )}
       </div>
 
@@ -933,17 +1398,6 @@ export default function App() {
               </div>
             </Card>
 
-            {/* API URL */}
-            <Card style={{ marginBottom:12 }}>
-              <SLabel>Sync API</SLabel>
-              <input
-                value={match.apiUrl}
-                disabled
-                style={{ opacity:0.75, cursor:"not-allowed" }}
-              />
-              <div style={{ fontSize:11, color:"var(--txt-3)", marginTop:6 }}>Sync endpoint (pre-configured)</div>
-            </Card>
-
             {/* Players */}
             <Card style={{ marginBottom:16 }}>
               <SLabel>Players</SLabel>
@@ -977,8 +1431,11 @@ export default function App() {
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                 {(editTeam==="A" ? match.playersA : match.playersB).map((p, i) => {
-                  const key = editTeam==="A" ? "playersA" : "playersB";
-                  const list = editTeam==="A" ? match.playersA : match.playersB;
+                  const key     = editTeam==="A" ? "playersA" : "playersB";
+                  const toKey   = editTeam==="A" ? "playersB" : "playersA";
+                  const list    = editTeam==="A" ? match.playersA : match.playersB;
+                  const isCap   = /\(c\)/i.test(p);
+                  const canSwitch = !isCap && !matchInProgress;
                   return (
                     <div key={i} style={{ display:"flex", alignItems:"center", gap:8 }}>
                       <span style={{
@@ -994,6 +1451,19 @@ export default function App() {
                         }}
                         style={{ fontSize:14, flex:1 }}
                       />
+                      {canSwitch && (
+                        <button
+                          title={`Move to ${editTeam==="A" ? match.teamB : match.teamA}`}
+                          onClick={() => setMatch(m => {
+                            const from = [...m[key]];
+                            const to   = [...m[toKey]];
+                            const [player] = from.splice(i, 1);
+                            to.push(player);
+                            return { ...m, [key]: from, [toKey]: to };
+                          })}
+                          style={{ background:"var(--blue-lt)", color:"var(--blue)", border:"1px solid var(--blue)", borderRadius:"var(--radius-sm)", width:28, height:28, fontSize:15, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}
+                        >⇄</button>
+                      )}
                       {list.length > 11 && (
                         <button
                           onClick={() => setMatch(m => { const a=[...m[key]]; a.splice(i,1); return {...m,[key]:a}; })}
@@ -1006,69 +1476,29 @@ export default function App() {
               </div>
             </Card>
 
-            <button
-              onClick={handleStartMatch}
-              style={{
-                width:"100%", padding:16, borderRadius:"var(--radius)",
-                background:"var(--green)", color:"#fff", border:"none",
-                fontSize:17, fontWeight:700, cursor:"pointer",
-                display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-                boxShadow:"0 4px 16px rgba(26,107,42,0.4)",
-              }}>
-              <Icon.Plus /> Start Match
-            </button>
-
-            {/* About card */}
-            <div style={{
-              marginTop:20, marginBottom:4,
-              background:"var(--bg-card)", borderRadius:"var(--radius)",
-              border:"1px solid var(--bdr-2)", overflow:"hidden",
-            }}>
-              {/* Banner */}
+            {!matchInProgress && (
+              <button
+                onClick={handleStartMatch}
+                style={{
+                  width:"100%", padding:16, borderRadius:"var(--radius)",
+                  background:"var(--green)", color:"#fff", border:"none",
+                  fontSize:17, fontWeight:700, cursor:"pointer",
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+                  boxShadow:"0 4px 16px rgba(26,107,42,0.4)",
+                }}>
+                <Icon.Plus /> Start Match
+              </button>
+            )}
+            {matchInProgress && (
               <div style={{
-                background:"linear-gradient(135deg,#0f4019,#1a6b2a)",
-                padding:"20px 20px 16px",
-                display:"flex", alignItems:"center", gap:14,
+                padding:"14px 16px", borderRadius:"var(--radius)",
+                background:"var(--green-lt)", border:"1.5px solid var(--green)",
+                textAlign:"center", fontSize:14, fontWeight:600, color:"var(--green)",
               }}>
-                <div style={{
-                  width:52, height:52, borderRadius:"50%",
-                  background:"rgba(255,255,255,0.15)",
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  fontSize:28, flexShrink:0,
-                }}>🏏</div>
-                <div>
-                  <div style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.3px" }}>Howzat</div>
-                  <div style={{ color:"rgba(255,255,255,0.65)", fontSize:12, marginTop:2 }}>Cricket Scoring App · v1.0</div>
-                </div>
+                ✓ Match in progress — go to Score tab to continue
               </div>
+            )}
 
-              {/* Info rows */}
-              <div style={{ padding:"14px 20px 18px", display:"flex", flexDirection:"column", gap:12 }}>
-                {[
-                  { icon:"👤", label:"Developer", value:"Aman Ullah Shaikh" },
-                  { icon:"✉️", label:"Email",     value:"shaikhg11@hotmail.com" },
-                  { icon:"📱", label:"Platform",  value:"Android · Web (PWA)" },
-                  { icon:"🗄️", label:"Storage",   value:"IndexedDB (offline-first)" },
-                  { icon:"☁️", label:"Sync",      value:"REST API (configurable)" },
-                ].map(row => (
-                  <div key={row.label} style={{ display:"flex", alignItems:"center", gap:12 }}>
-                    <span style={{ fontSize:18, width:24, textAlign:"center", flexShrink:0 }}>{row.icon}</span>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:10, color:"var(--txt-3)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{row.label}</div>
-                      <div style={{ fontSize:14, color:"var(--txt)", fontWeight:500, marginTop:1 }}>{row.value}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Footer */}
-              <div style={{
-                borderTop:"1px solid var(--bdr-2)", padding:"10px 20px",
-                fontSize:11, color:"var(--txt-3)", textAlign:"center",
-              }}>
-                Built with React · Vite · Capacitor
-              </div>
-            </div>
           </div>
         )}
 
@@ -1160,12 +1590,7 @@ export default function App() {
                   {forceEnded ? ` (${inn.overs}.${inn.balls} overs)` : inn.wickets >= 10 ? " (All out)" : ` (${match.overs} overs)`}
                 </div>
                 {curInn === 1 && (
-                  <button onClick={() => {
-                    setCurInn(2);
-                    setBowlerIdx(0);
-                    setBowlerManuallySet(false);
-                    setBowlerAutoMsg("");
-                  }} style={{
+                  <button onClick={() => setPreMatchModal({ inn: 2, showToss: false })} style={{
                     ...btn("green"), width:"100%", marginTop:10, justifyContent:"center",
                   }}>Start Innings 2 →</button>
                 )}
@@ -1299,11 +1724,47 @@ export default function App() {
                   ▶ Resume
                 </button>
               )}
-              <button onClick={() => { setDeliveries([]); setCurInn(1); setMatch(initMatch()); setSnapshots([]); setForceEnded(false); setTab("Setup"); }}
+              <button onClick={() => setConfirmNewMatch(true)}
                 style={{ ...btn("ghost"), justifyContent:"center" }}>
                 New match
               </button>
             </div>
+
+            {/* Confirm new match dialog */}
+            {confirmNewMatch && (
+              <div style={{
+                position:"fixed", inset:0, zIndex:800, background:"rgba(0,0,0,0.65)",
+                display:"flex", alignItems:"flex-end", justifyContent:"center",
+              }} onClick={() => setConfirmNewMatch(false)}>
+                <div className="slide-up" onClick={e => e.stopPropagation()} style={{
+                  background:"var(--bg-card)", borderRadius:"var(--radius-lg) var(--radius-lg) 0 0",
+                  padding:"24px 20px calc(24px + env(safe-area-inset-bottom,0px))", width:"100%", maxWidth:480,
+                  borderTop:"2px solid var(--green)",
+                }}>
+                  <div style={{ width:36, height:4, background:"var(--bdr)", borderRadius:99, margin:"0 auto 20px" }} />
+                  <div style={{ fontSize:20, fontWeight:800, marginBottom:8, textAlign:"center" }}>Start a new match?</div>
+                  <div style={{ fontSize:14, color:"var(--txt-2)", textAlign:"center", marginBottom:6 }}>
+                    The current match (<strong>{match.teamA} vs {match.teamB}</strong>) will be ended and synced.
+                  </div>
+                  {deliveries.length > 0 && (
+                    <div style={{ fontSize:13, color:"var(--txt-3)", textAlign:"center", marginBottom:20 }}>
+                      Final score: {inn.runs}/{inn.wickets} in {inn.overs}.{inn.balls} ov
+                    </div>
+                  )}
+                  {deliveries.length === 0 && <div style={{ marginBottom:20 }} />}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <button onClick={handleNewMatch}
+                      style={{ ...btn("green"), justifyContent:"center", padding:14, fontSize:15 }}>
+                      ✓ Yes, new match
+                    </button>
+                    <button onClick={() => setConfirmNewMatch(false)}
+                      style={{ ...btn("ghost"), justifyContent:"center", padding:14, fontSize:15 }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Confirm end dialog */}
             {confirmEnd && (
@@ -1320,13 +1781,13 @@ export default function App() {
                   <div style={{ width:36, height:4, background:"var(--bdr)", borderRadius:99, margin:"0 auto 20px" }} />
                   <div style={{ fontSize:20, fontWeight:800, marginBottom:8, textAlign:"center" }}>End match?</div>
                   <div style={{ fontSize:14, color:"var(--txt-2)", textAlign:"center", marginBottom:24 }}>
-                    This will stop scoring at <strong>{inn.runs}/{inn.wickets}</strong> in {inn.overs}.{inn.balls} overs.
-                    You can resume later if needed.
+                    Final score: <strong>{inn.runs}/{inn.wickets}</strong> in {inn.overs}.{inn.balls} overs.
+                    Results will be synced and the match will be finalised.
                   </div>
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                    <button onClick={() => { setForceEnded(true); setConfirmEnd(false); showToast("Match ended"); }}
+                    <button onClick={handleFinaliseEnd}
                       style={{ ...btn("red"), justifyContent:"center", padding:14, fontSize:15 }}>
-                      Yes, end it
+                      ✓ End &amp; Sync
                     </button>
                     <button onClick={() => setConfirmEnd(false)}
                       style={{ ...btn("ghost"), justifyContent:"center", padding:14, fontSize:15 }}>
@@ -1346,7 +1807,9 @@ export default function App() {
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
               {([1,2] as const).map(n => {
                 const s = computeInnings(deliveries, n);
-                const teamName = n===1 ? match.teamA : match.teamB;
+                const teamName = n===1
+                  ? (match.battingFirst==="A" ? match.teamA : match.teamB)
+                  : (match.battingFirst==="A" ? match.teamB : match.teamA);
                 return (
                   <button key={n} onClick={() => setHistInn(n)} style={{
                     padding:12, borderRadius:"var(--radius-sm)", cursor:"pointer",
@@ -1385,8 +1848,12 @@ export default function App() {
                 </div>
               );
 
-              const bTeam    = histInn===1 ? match.playersA : match.playersB;
-              const bowlTeam = histInn===1 ? match.playersB : match.playersA;
+              const bTeam    = histInn===1
+                ? (match.battingFirst==="A" ? match.playersA : match.playersB)
+                : (match.battingFirst==="A" ? match.playersB : match.playersA);
+              const bowlTeam = histInn===1
+                ? (match.battingFirst==="A" ? match.playersB : match.playersA)
+                : (match.battingFirst==="A" ? match.playersA : match.playersB);
 
               if (histView === "Scorecard") {
                 // ── Batting stats ─────────────────────────────────
@@ -1592,6 +2059,45 @@ export default function App() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ══ ABOUT ═══════════════════════════════════════════════ */}
+        {tab === "About" && (
+          <div style={{ padding:"16px 16px 0" }}>
+            <div style={{ background:"var(--bg-card)", borderRadius:"var(--radius)", border:"1px solid var(--bdr-2)", overflow:"hidden" }}>
+              <div style={{
+                background:"linear-gradient(135deg,#0f4019,#1a6b2a)",
+                padding:"28px 20px 22px",
+                display:"flex", alignItems:"center", gap:16,
+              }}>
+                <div style={{ width:56, height:56, borderRadius:"50%", background:"rgba(255,255,255,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0 }}>🏏</div>
+                <div>
+                  <div style={{ color:"#fff", fontSize:22, fontWeight:800, letterSpacing:"-0.3px" }}>Howzat</div>
+                  <div style={{ color:"rgba(255,255,255,0.65)", fontSize:13, marginTop:3 }}>Cricket Scoring App · v1.0</div>
+                </div>
+              </div>
+              <div style={{ padding:"16px 20px 20px", display:"flex", flexDirection:"column", gap:14 }}>
+                {[
+                  { icon:"👤", label:"Developer", value:"Aman Ullah Shaikh" },
+                  { icon:"✉️", label:"Email",     value:"shaikhg11@hotmail.com" },
+                  { icon:"📱", label:"Platform",  value:"Android · Web (PWA)" },
+                  { icon:"🗄️", label:"Storage",   value:"IndexedDB (offline-first)" },
+                  { icon:"☁️", label:"Sync",      value:"REST API (configurable)" },
+                ].map(row => (
+                  <div key={row.label} style={{ display:"flex", alignItems:"center", gap:14 }}>
+                    <span style={{ fontSize:20, width:26, textAlign:"center", flexShrink:0 }}>{row.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:10, color:"var(--txt-3)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>{row.label}</div>
+                      <div style={{ fontSize:14, color:"var(--txt)", fontWeight:500, marginTop:2 }}>{row.value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop:"1px solid var(--bdr-2)", padding:"12px 20px", fontSize:11, color:"var(--txt-3)", textAlign:"center" }}>
+                Built with React · Vite · Capacitor
+              </div>
+            </div>
           </div>
         )}
       </div>

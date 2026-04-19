@@ -15,7 +15,13 @@ public record MatchRequest(
     List<string> PlayersA,
     List<string> PlayersB,
     string? ApiUrl,
-    bool Synced
+    bool Synced,
+    string? BattingFirst = null,
+    string? TossWinner = null,
+    int? Inn1BatterA = null,
+    int? Inn1BatterB = null,
+    int? Inn2BatterA = null,
+    int? Inn2BatterB = null
 );
 
 public record DeliveryRequest(
@@ -32,7 +38,9 @@ public record DeliveryRequest(
     int BowlerIdx,
     string? DismissalType,
     int? FielderIdx,
-    int? BatsmanOutIdx
+    int? BatsmanOutIdx,
+    int? NextBatterIdx = null,
+    bool? BattersCrossed = null
 );
 
 // ── Responses ─────────────────────────────────────────────────────
@@ -63,7 +71,13 @@ public record MatchDetailResponse(
     List<string> PlayersB,
     DateTime CreatedAt,
     InningsSummary Innings1,
-    InningsSummary Innings2
+    InningsSummary Innings2,
+    string? BattingFirst = null,
+    string? TossWinner = null,
+    int? Inn1BatterA = null,
+    int? Inn1BatterB = null,
+    int? Inn2BatterA = null,
+    int? Inn2BatterB = null
 );
 
 public record DeliveryResponse(
@@ -79,7 +93,9 @@ public record DeliveryResponse(
     int BowlerIdx,
     string? DismissalType,
     int? FielderIdx,
-    int? BatsmanOutIdx
+    int? BatsmanOutIdx,
+    int? NextBatterIdx = null,
+    bool? BattersCrossed = null
 );
 
 // ── Scorecard ─────────────────────────────────────────────────────

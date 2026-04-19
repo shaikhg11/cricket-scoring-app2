@@ -62,7 +62,10 @@ public class MatchesController(CricketDbContext db) : ControllerBase
 
         return Ok(new MatchDetailResponse(
             match.Id, match.TeamA, match.TeamB, match.Overs,
-            playersA, playersB, match.CreatedAt, i1, i2));
+            playersA, playersB, match.CreatedAt, i1, i2,
+            match.BattingFirst, match.TossWinner,
+            match.Inn1BatterA, match.Inn1BatterB,
+            match.Inn2BatterA, match.Inn2BatterB));
     }
 
     /// <summary>Returns the full scorecard with batting and bowling stats for both innings.</summary>
@@ -116,7 +119,7 @@ public class MatchesController(CricketDbContext db) : ControllerBase
                 d.Id, d.Innings, d.Over, d.Ball, d.Runs,
                 d.Extra, d.IsWicket, d.FreeHit,
                 d.BatterIdx, d.BowlerIdx,
-                d.DismissalType, d.FielderIdx, d.BatsmanOutIdx))
+                d.DismissalType, d.FielderIdx, d.BatsmanOutIdx, d.NextBatterIdx, d.BattersCrossed))
             .ToListAsync();
 
         return Ok(deliveries);

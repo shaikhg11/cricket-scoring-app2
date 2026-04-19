@@ -41,12 +41,29 @@ builder.Services.AddCors(opts =>
 // ── Pipeline ──────────────────────────────────────────────────────
 var app = builder.Build();
 
-//Auto - apply migrations on startup
-//using (var scope = app.Services.CreateScope())
-//{
-//    var dbCtx = scope.ServiceProvider.GetRequiredService<CricketDbContext>();
-//    dbCtx.Database.Migrate();
-//}
+// Add new columns if they don't exist (safe for existing DB)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<CricketDbContext>();
+    await db.Database.ExecuteSqlRawAsync(@"
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Matches' AND COLUMN_NAME='BattingFirst')
+            ALTER TABLE [dbo].[Matches] ADD [BattingFirst] NVARCHAR(1) NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Matches' AND COLUMN_NAME='TossWinner')
+            ALTER TABLE [dbo].[Matches] ADD [TossWinner] NVARCHAR(100) NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Matches' AND COLUMN_NAME='Inn1BatterA')
+            ALTER TABLE [dbo].[Matches] ADD [Inn1BatterA] INT NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Matches' AND COLUMN_NAME='Inn1BatterB')
+            ALTER TABLE [dbo].[Matches] ADD [Inn1BatterB] INT NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Matches' AND COLUMN_NAME='Inn2BatterA')
+            ALTER TABLE [dbo].[Matches] ADD [Inn2BatterA] INT NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Matches' AND COLUMN_NAME='Inn2BatterB')
+            ALTER TABLE [dbo].[Matches] ADD [Inn2BatterB] INT NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Deliveries' AND COLUMN_NAME='NextBatterIdx')
+            ALTER TABLE [dbo].[Deliveries] ADD [NextBatterIdx] INT NULL;
+        IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='Deliveries' AND COLUMN_NAME='BattersCrossed')
+            ALTER TABLE [dbo].[Deliveries] ADD [BattersCrossed] BIT NULL;
+    ");
+}
 
 //if (app.Environment.IsDevelopment())
 //{

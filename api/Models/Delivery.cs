@@ -36,6 +36,12 @@ public class Delivery
     /// <summary>Actual batter dismissed (differs from BatterIdx on run-outs)</summary>
     public int? BatsmanOutIdx { get; set; }
 
+    /// <summary>Manually chosen incoming batter index after a wicket</summary>
+    public int? NextBatterIdx { get; set; }
+
+    /// <summary>For Caught: did batters cross before the catch? (affects strike rotation)</summary>
+    public bool? BattersCrossed { get; set; }
+
     public DateTime RecordedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation

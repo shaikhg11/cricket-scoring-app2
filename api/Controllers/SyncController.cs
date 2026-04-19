@@ -50,12 +50,18 @@ public class SyncController(CricketDbContext db) : ControllerBase
                 db.Matches.Add(match);
             }
 
-            match.TeamA     = payload.Match.TeamA;
-            match.TeamB     = payload.Match.TeamB;
-            match.Overs     = payload.Match.Overs;
-            match.ApiUrl    = payload.Match.ApiUrl;
-            match.Synced    = true;
-            match.UpdatedAt = DateTime.UtcNow;
+            match.TeamA       = payload.Match.TeamA;
+            match.TeamB       = payload.Match.TeamB;
+            match.Overs       = payload.Match.Overs;
+            match.ApiUrl      = payload.Match.ApiUrl;
+            match.Synced      = true;
+            match.UpdatedAt   = DateTime.UtcNow;
+            match.BattingFirst = payload.Match.BattingFirst;
+            match.TossWinner   = payload.Match.TossWinner;
+            match.Inn1BatterA  = payload.Match.Inn1BatterA;
+            match.Inn1BatterB  = payload.Match.Inn1BatterB;
+            match.Inn2BatterA  = payload.Match.Inn2BatterA;
+            match.Inn2BatterB  = payload.Match.Inn2BatterB;
 
             // ── Upsert players ────────────────────────────────────────
             var existingPlayers = await db.Players
@@ -112,7 +118,9 @@ public class SyncController(CricketDbContext db) : ControllerBase
                     DismissalType = d.DismissalType,
                     FielderIdx    = d.FielderIdx,
                     BatsmanOutIdx = d.BatsmanOutIdx,
-                    RecordedAt    = DateTime.UtcNow,
+                    NextBatterIdx  = d.NextBatterIdx,
+                    BattersCrossed = d.BattersCrossed,
+                    RecordedAt     = DateTime.UtcNow,
                 });
 
             await db.Deliveries.AddRangeAsync(toAdd);
