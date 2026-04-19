@@ -1,5 +1,8 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CricketScoringApi.Models;
 
+[Table("Matches", Schema = "dbo")]
 public class Match
 {
     public string Id { get; set; } = string.Empty;

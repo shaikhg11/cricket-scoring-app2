@@ -1,5 +1,8 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CricketScoringApi.Models;
 
+[Table("Deliveries", Schema = "dbo")]
 public class Delivery
 {
     public long Id { get; set; }

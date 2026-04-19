@@ -1,4 +1,8 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace CricketScoringApi.Models;
+
+[Table("Players", Schema = "dbo")]
 
 public class Player
 {

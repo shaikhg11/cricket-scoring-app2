@@ -4,7 +4,16 @@
       "WebFetch(domain:claude.ai)",
       "Bash(npm install:*)",
       "Bash(npx vite:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(gh auth:*)",
+      "Bash(git --version)",
+      "Bash(git config:*)",
+      "Bash(mv \"C:/Temp/Personal/Cricket Scroring App\" \"C:/Temp/Personal/cricket-scoring-app2\")",
+      "Read(//c/Temp/Personal/cricket-scoring-app2/**)",
+      "Bash(mkdir -p \"C:/Temp/Personal/cricket-scoring-app2\")",
+      "Bash(robocopy \"C:/Temp/Personal/Cricket Scroring App\" \"C:/Temp/Personal/cricket-scoring-app2\" /E /XD node_modules dist .git /NFL /NDL /NJH)",
+      "Bash(robocopy \"C:\\\\Temp\\\\Personal\\\\Cricket Scroring App\" \"C:\\\\Temp\\\\Personal\\\\cricket-scoring-app2\" /E /XD node_modules dist .git /NFL /NDL /NJH)",
+      "Bash(powershell -Command \"Copy-Item -Path ''C:\\\\Temp\\\\Personal\\\\Cricket Scroring App\\\\*'' -Destination ''C:\\\\Temp\\\\Personal\\\\cricket-scoring-app2'' -Recurse -Force -Exclude ''node_modules'',''dist'',''.git''; Write-Host ''Done''\")"
     ]
   }
 }

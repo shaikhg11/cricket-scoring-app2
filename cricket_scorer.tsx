@@ -144,7 +144,7 @@ function computeInnings(dels: Delivery[], inn: 1 | 2): InningsState {
 const mkPlayers = (n: number) => Array.from({ length: n }, (_, i) => `Player ${i+1}`);
 const initMatch = (): Match => ({
   id: Date.now().toString(), teamA: "Team A", teamB: "Team B", overs: 20,
-  playersA: mkPlayers(11), playersB: mkPlayers(11), apiUrl: "", synced: false,
+  playersA: mkPlayers(11), playersB: mkPlayers(11), apiUrl: "http://aushaikh.runasp.net/api/sync", synced: false,
 });
 
 // ── SVG Icons ────────────────────────────────────────────────────
@@ -535,6 +535,7 @@ export default function App() {
   const [syncSt,        setSyncSt]       = useState<""|"syncing"|"ok"|"err">("");
   const [histInn,       setHistInn]      = useState<1|2>(1);
   const [histView,      setHistView]     = useState<"Scorecard"|"Overs">("Scorecard");
+  const [resuming,      setResuming]     = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
 
   const inn      = computeInnings(deliveries, curInn);
@@ -568,6 +569,67 @@ export default function App() {
 
   const showToast = useCallback((msg: string) => {
     setToast(msg); setTimeout(() => setToast(""), 2600);
+  }, []);
+
+  // ── Restore in-progress match from server on page load ──────────
+  useEffect(() => {
+    const savedMatchId = localStorage.getItem("cricket_activeMatchId");
+    const savedApiUrl  = localStorage.getItem("cricket_apiUrl");
+    if (!savedMatchId || !savedApiUrl) return;
+
+    const baseUrl = savedApiUrl.replace(/\/sync$/i, "");
+    setResuming(true);
+
+    (async () => {
+      try {
+        const [matchRes, delsRes] = await Promise.all([
+          fetch(`${baseUrl}/matches/${savedMatchId}`),
+          fetch(`${baseUrl}/matches/${savedMatchId}/deliveries`),
+        ]);
+        if (!matchRes.ok || !delsRes.ok) { setResuming(false); return; }
+
+        const matchData   = await matchRes.json();
+        const delsData: any[] = await delsRes.json();
+
+        setMatch({
+          id: matchData.id,
+          teamA: matchData.teamA,
+          teamB: matchData.teamB,
+          overs: matchData.overs,
+          playersA: matchData.playersA,
+          playersB: matchData.playersB,
+          apiUrl: savedApiUrl,
+          synced: true,
+        });
+
+        const loadedDels: Delivery[] = delsData.map(d => ({
+          id:            d.id,
+          matchId:       matchData.id,
+          innings:       d.innings as 1 | 2,
+          over:          d.over,
+          ball:          d.ball,
+          runs:          d.runs,
+          extra:         d.extra,
+          isWicket:      d.isWicket,
+          freeHit:       d.freeHit,
+          batterIdx:     d.batterIdx,
+          bowlerIdx:     d.bowlerIdx,
+          dismissalType: d.dismissalType,
+          fielderIdx:    d.fielderIdx,
+          batsmanOutIdx: d.batsmanOutIdx,
+        }));
+
+        setDeliveries(loadedDels);
+        setCurInn(loadedDels.some(d => d.innings === 2) ? 2 : 1);
+        setTab("Score");
+        showToast("Match resumed from server ✓");
+      } catch {
+        // silently fall through to fresh setup
+      } finally {
+        setResuming(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Auto-rotate bowler after every completed over ────────────────
@@ -638,12 +700,14 @@ export default function App() {
       fielderIdx:    isWicket ? (wicketInfo?.fielderIdx  ?? null) : null,
       batsmanOutIdx: isWicket ? (wicketInfo?.batsmanOutIdx ?? null) : null,
     };
-    setDeliveries(prev => [...prev, d]);
+    const newDeliveries = [...deliveries, d];
+    setDeliveries(newDeliveries);
     setSelExtra(null);
     if (isWicket)        setAnim("out");
     else if (runs === 6) setAnim("six");
     else if (runs === 4 && !selExtra) setAnim("four");
     try { await dbPut("deliveries", d); } catch (e: any) { showToast("Save error"); }
+    if (isWicket || runs === 6 || (runs === 4 && !selExtra)) syncNow(newDeliveries);
   }
 
   function handleEditSave(patch: Partial<Delivery>) {
@@ -658,39 +722,43 @@ export default function App() {
   function undoLast() {
     if (!lastDel) return;
     dbDelete("deliveries", lastDel.id);
-    setDeliveries(prev => prev.slice(0, -1));
+    const newDeliveries = deliveries.slice(0, -1);
+    setDeliveries(newDeliveries);
     setEditOpen(false);
     showToast("Last ball undone");
+    syncNow(newDeliveries);
   }
 
-  async function handleSync() {
+  async function syncNow(dels: Delivery[]) {
+    if (!match.apiUrl) return;
     setSyncSt("syncing");
     try {
-      const allDels = await dbGetAll("deliveries");
       const payload = {
-        match, deliveries: allDels,
-        innings1: computeInnings(allDels, 1),
-        innings2: computeInnings(allDels, 2),
+        match, deliveries: dels,
+        innings1: computeInnings(dels, 1),
+        innings2: computeInnings(dels, 2),
         syncedAt: new Date().toISOString(),
       };
-      if (match.apiUrl) {
-        const r = await fetch(match.apiUrl, {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      } else {
-        await new Promise(r => setTimeout(r, 900));
-        console.log("[CricketScorer] Sync payload:", payload);
-      }
+      const r = await fetch(match.apiUrl, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setSyncSt("ok");
       setMatch(m => ({ ...m, synced: true }));
-      showToast(match.apiUrl ? "Synced to API ✓" : "Simulated sync ✓ (add API URL in Setup)");
       setTimeout(() => setSyncSt(""), 3000);
     } catch (e: any) {
       setSyncSt("err");
-      showToast("Sync failed: " + e.message);
       setTimeout(() => setSyncSt(""), 3000);
+    }
+  }
+
+  async function handleSync() {
+    try {
+      await syncNow(deliveries);
+      showToast("Synced to API ✓");
+    } catch (e: any) {
+      showToast("Sync failed: " + e.message);
     }
   }
 
@@ -713,6 +781,38 @@ export default function App() {
     if (cameraRef.current) cameraRef.current.value = "";
   }
 
+  async function handleStartMatch() {
+    setTab("Score");
+    await dbPut("matches", match);
+
+    if (match.apiUrl) {
+      localStorage.setItem("cricket_activeMatchId", match.id);
+      localStorage.setItem("cricket_apiUrl", match.apiUrl);
+      setSyncSt("syncing");
+      try {
+        const payload = {
+          match, deliveries: [],
+          innings1: computeInnings([], 1),
+          innings2: computeInnings([], 2),
+          syncedAt: new Date().toISOString(),
+        };
+        const r = await fetch(match.apiUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        setSyncSt("ok");
+        setMatch(m => ({ ...m, synced: true }));
+        showToast("Match started & synced ✓");
+        setTimeout(() => setSyncSt(""), 3000);
+      } catch (e: any) {
+        setSyncSt("err");
+        showToast("Sync failed: " + (e as Error).message);
+        setTimeout(() => setSyncSt(""), 3000);
+      }
+    }
+  }
+
   // ── Layout shell ───────────────────────────────────────────────
   return (
     <div style={{
@@ -722,6 +822,22 @@ export default function App() {
       background:"var(--bg)",
     }}>
       <AnimOverlay type={anim} onDone={() => setAnim(null)} />
+
+      {/* Resuming overlay */}
+      {resuming && (
+        <div style={{
+          position:"fixed", inset:0, zIndex:9998,
+          background:"rgba(0,0,0,0.88)",
+          display:"flex", flexDirection:"column",
+          alignItems:"center", justifyContent:"center",
+          gap:16, color:"#fff",
+        }}>
+          <div style={{ fontSize:52 }}>🏏</div>
+          <div style={{ fontSize:20, fontWeight:800 }}>Resuming match…</div>
+          <div style={{ fontSize:13, opacity:0.6 }}>Loading from server</div>
+        </div>
+      )}
+
       <EditBallModal delivery={editOpen ? lastDel : null} onSave={handleEditSave} onUndo={undoLast} onClose={() => setEditOpen(false)} />
       {wicketModalOpen && (
         <WicketModal
@@ -822,10 +938,10 @@ export default function App() {
               <SLabel>Sync API</SLabel>
               <input
                 value={match.apiUrl}
-                placeholder="https://your-api.com/cricket/sync  (optional)"
-                onChange={e => setMatch(m=>({...m,apiUrl:e.target.value}))}
+                disabled
+                style={{ opacity:0.75, cursor:"not-allowed" }}
               />
-              <div style={{ fontSize:11, color:"var(--txt-3)", marginTop:6 }}>Leave blank to simulate sync (logs to console)</div>
+              <div style={{ fontSize:11, color:"var(--txt-3)", marginTop:6 }}>Sync endpoint (pre-configured)</div>
             </Card>
 
             {/* Players */}
@@ -891,7 +1007,7 @@ export default function App() {
             </Card>
 
             <button
-              onClick={() => { setTab("Score"); dbPut("matches", match); }}
+              onClick={handleStartMatch}
               style={{
                 width:"100%", padding:16, borderRadius:"var(--radius)",
                 background:"var(--green)", color:"#fff", border:"none",
