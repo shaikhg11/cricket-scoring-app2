@@ -866,19 +866,18 @@ function PreMatchModal({ match, showToss, inn, onConfirm, onClose }: {
 
 // ── Main App ─────────────────────────────────────────────────────
 export default function App() {
-  const liveMatchId = new URLSearchParams(window.location.search).get("liveMatch");
-  if (liveMatchId) return <LiveView matchId={liveMatchId} />;
-  return <ScoreApp />;
+  const liveMatchId = new URLSearchParams(window.location.search).get("liveMatch") ?? undefined;
+  return <ScoreApp initialMatchId={liveMatchId} />;
 }
 
-function ScoreApp() {
+function ScoreApp({ initialMatchId }: { initialMatchId?: string } = {}) {
   const [tab,           setTab]          = useState<TabId>("Setup");
   const [match,         setMatch]        = useState<Match>(initMatch);
   const [deliveries,    setDeliveries]   = useState<Delivery[]>([]);
   const [curInn,        setCurInn]       = useState<1|2>(1);
   const [selExtra,      setSelExtra]     = useState<string|null>(null);
   const [editTeam,      setEditTeam]     = useState<"A"|"B">("A");
-  const [bowlerIdx,     setBowlerIdx]    = useState(0);
+  const [bowlerIdx,     setBowlerIdx]    = useState<number | null>(null);
   const [bowlerManuallySet, setBowlerManuallySet] = useState(false);
   const [bowlerAutoMsg,     setBowlerAutoMsg]     = useState<string>("");
   const prevOversRef   = useRef<number>(-1);
@@ -941,8 +940,9 @@ function ScoreApp() {
 
   // ── Restore in-progress match from server on page load ──────────
   useEffect(() => {
-    const savedMatchId = localStorage.getItem("cricket_activeMatchId");
-    const savedApiUrl  = localStorage.getItem("cricket_apiUrl");
+    const savedMatchId = localStorage.getItem("cricket_activeMatchId") ?? initialMatchId ?? null;
+    const defaultApiUrl = "http://aushaikh.runasp.net/api/sync";
+    const savedApiUrl  = localStorage.getItem("cricket_apiUrl") ?? (initialMatchId ? defaultApiUrl : null);
     if (!savedMatchId || !savedApiUrl) return;
 
     const baseUrl = savedApiUrl.replace(/\/sync$/i, "");
@@ -991,11 +991,18 @@ function ScoreApp() {
           dismissalType: d.dismissalType,
           fielderIdx:    d.fielderIdx,
           batsmanOutIdx: d.batsmanOutIdx,
-          nextBatterIdx: d.nextBatterIdx ?? null,
+          nextBatterIdx:  d.nextBatterIdx ?? null,
+          battersCrossed: d.battersCrossed ?? null,
         }));
 
+        // Persist so refreshing the page keeps the match loaded
+        localStorage.setItem("cricket_activeMatchId", matchData.id);
+        localStorage.setItem("cricket_apiUrl", savedApiUrl);
+
         setDeliveries(loadedDels);
-        setCurInn(loadedDels.some(d => d.innings === 2) ? 2 : 1);
+        const resumeInn: 1|2 = loadedDels.some(d => d.innings === 2) ? 2 : 1;
+        setCurInn(resumeInn);
+        setBowlerIdx(loadedDels.filter(d => d.innings === resumeInn).at(-1)?.bowlerIdx ?? null);
         setMatchInProgress(true);
         setTab("Score");
         showToast("Match resumed from server ✓");
@@ -1008,13 +1015,12 @@ function ScoreApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Auto-rotate bowler after every completed over ────────────────
+  // ── Prompt for new bowler after every completed over ─────────────
   useEffect(() => {
     // Reset when innings changes
     if (curInn !== prevCurInnRef.current) {
       prevCurInnRef.current = curInn;
       prevOversRef.current  = -1;
-      setBowlerIdx(0);
       setBowlerManuallySet(false);
       setBowlerAutoMsg("");
       return;
@@ -1022,37 +1028,17 @@ function ScoreApp() {
 
     const currentOvers = inn.overs;
 
-    // Guard: skip the very first render (prevOversRef is -1)
     if (prevOversRef.current === -1) {
       prevOversRef.current = currentOvers;
       return;
     }
 
     if (currentOvers > prevOversRef.current) {
-      // An over just completed
-      setBowlerManuallySet(prev => {
-        if (!prev) {
-          // Auto-advance to the next player in order
-          setBowlerIdx(bi => {
-            const bowling2 = curInn === 1 ? match.playersB : match.playersA;
-            const next = (bi + 1) % bowling2.length;
-            const msg = `🔄 Over ${currentOvers} done — auto: ${bowling2[next]}`;
-            setBowlerAutoMsg(msg);
-            showToast(msg);
-            return next;
-          });
-        } else {
-          // User already picked — keep their choice, just toast
-          setBowlerIdx(bi => {
-            const bowling2 = curInn === 1 ? match.playersB : match.playersA;
-            const msg = `✅ Over ${currentOvers} done — ${bowling2[bi]}`;
-            setBowlerAutoMsg(msg);
-            showToast(msg);
-            return bi;
-          });
-        }
-        return false; // reset the manual flag for the upcoming over
-      });
+      // Over just completed — clear bowler and require manual selection
+      setBowlerIdx(null);
+      setBowlerManuallySet(false);
+      setBowlerAutoMsg(`Over ${currentOvers} complete`);
+      showToast("Over done — select next bowler 🎯");
       prevOversRef.current = currentOvers;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1065,6 +1051,7 @@ function ScoreApp() {
     nextBatterIdx?: number | null,
   ) {
     if (isComplete) return;
+    if (bowlerIdx === null) { showToast("Select a bowler first!"); return; }
     const fh = inn.freeHitNext;
     if (isWicket && fh && wicketInfo?.dismissalType !== "Run Out") { showToast("Can't get out on a Free Hit!"); return; }
     const d: Delivery = {
@@ -1072,7 +1059,7 @@ function ScoreApp() {
       over: inn.overs, ball: inn.balls,
       runs, extra: selExtra, isWicket, freeHit: fh,
       batterIdx: inn.onStrike === 0 ? inn.batterA : inn.batterB,
-      bowlerIdx,
+      bowlerIdx: bowlerIdx!,
       dismissalType: isWicket ? (wicketInfo?.dismissalType ?? null) : null,
       fielderIdx:    isWicket ? (wicketInfo?.fielderIdx  ?? null) : null,
       batsmanOutIdx: isWicket ? (wicketInfo?.batsmanOutIdx ?? null) : null,
@@ -1187,7 +1174,7 @@ function ScoreApp() {
     setForceEnded(false);
     setMatchInProgress(false);
     setConfirmNewMatch(false);
-    setBowlerIdx(0);
+    setBowlerIdx(null);
     setBowlerManuallySet(false);
     setBowlerAutoMsg("");
     setTab("Setup");
@@ -1228,7 +1215,7 @@ function ScoreApp() {
   }
 
   async function handleShare() {
-    const url = `${window.location.origin}${window.location.pathname}?liveMatch=${match.id}`;
+    const url = `http://${window.location.host}${window.location.pathname}?liveMatch=${match.id}`;
     if (navigator.share) {
       navigator.share({ title: `${match.teamA} vs ${match.teamB}`, text: "Follow the match live!", url }).catch(() => {});
     } else {
@@ -1607,28 +1594,38 @@ function ScoreApp() {
                     background:"var(--green-lt)", padding:"2px 8px", borderRadius:99,
                   }}>✏️ Manually set</span>
                 )}
-                {!bowlerManuallySet && bowlerAutoMsg && (
+                {bowlerIdx === null && (
                   <span style={{
-                    fontSize:11, fontWeight:600, color:"var(--txt-3)",
-                    padding:"2px 6px",
-                  }}>🔄 Auto</span>
+                    fontSize:11, fontWeight:700, color:"var(--gold)",
+                    background:"rgba(234,179,8,0.12)", padding:"2px 8px", borderRadius:99,
+                  }}>⚠ Select bowler</span>
                 )}
               </div>
               <select
-                value={bowlerIdx}
+                value={bowlerIdx ?? ""}
                 onChange={e => {
+                  if (e.target.value === "") return;
                   setBowlerIdx(+e.target.value);
                   setBowlerManuallySet(true);
                   setBowlerAutoMsg("");
                 }}
+                style={bowlerIdx === null ? { border:"2px solid var(--gold)", color:"var(--gold)" } : {}}
               >
+                <option value="" disabled>— Select bowler —</option>
                 {bowling.map((p, i) => <option key={i} value={i}>{p}</option>)}
               </select>
-              {inn.balls === 0 && inn.overs > 0 && (
+              {bowlerIdx === null && (
+                <div style={{
+                  marginTop:8, padding:"8px 10px", borderRadius:"var(--radius-sm)",
+                  background:"rgba(234,179,8,0.12)", border:"1.5px solid var(--gold)",
+                  fontSize:12, color:"var(--gold)", fontWeight:700,
+                }}>
+                  ⚠ Select the bowler before scoring
+                </div>
+              )}
+              {inn.balls === 0 && inn.overs > 0 && bowlerManuallySet && bowlerIdx !== null && (
                 <div style={{ fontSize:11, color:"var(--txt-3)", marginTop:5 }}>
-                  {bowlerManuallySet
-                    ? `Over ${inn.overs} · ${bowling[bowlerIdx]} to bowl`
-                    : `Over ${inn.overs} · auto-selected ${bowling[bowlerIdx]} — change if needed`}
+                  Over {inn.overs} · {bowling[bowlerIdx]} to bowl
                 </div>
               )}
             </Card>
@@ -1659,29 +1656,29 @@ function ScoreApp() {
               <SLabel>Runs scored</SLabel>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:8 }}>
                 {[1,2,3,4,5,6].map(r => (
-                  <button key={r} onClick={() => addDelivery(r)} disabled={isComplete} style={{
+                  <button key={r} onClick={() => addDelivery(r)} disabled={isComplete || bowlerIdx === null} style={{
                     aspectRatio:"1", borderRadius:"var(--radius-sm)", fontSize:22, fontWeight:800,
                     border: r===4 ? "2px solid var(--blue)" : r===6 ? "2px solid var(--green)" : "1.5px solid var(--bdr)",
                     background: r===6 ? "var(--green-lt)" : r===4 ? "var(--blue-lt)" : "var(--bg-input)",
                     color: r===6 ? "var(--green)" : r===4 ? "var(--blue)" : "var(--txt)",
-                    cursor:"pointer", opacity: isComplete ? 0.35 : 1,
+                    cursor:"pointer", opacity: (isComplete || bowlerIdx === null) ? 0.35 : 1,
                     minHeight:58, display:"flex", alignItems:"center", justifyContent:"center",
                   }}>{r}</button>
                 ))}
-                <button onClick={() => addDelivery(0)} disabled={isComplete} style={{
+                <button onClick={() => addDelivery(0)} disabled={isComplete || bowlerIdx === null} style={{
                   aspectRatio:"1", borderRadius:"var(--radius-sm)", fontSize:18, fontWeight:700,
                   border:"1.5px solid var(--bdr)", background:"var(--bg-input)", color:"var(--txt-3)",
-                  cursor:"pointer", opacity: isComplete ? 0.35 : 1,
+                  cursor:"pointer", opacity: (isComplete || bowlerIdx === null) ? 0.35 : 1,
                   minHeight:58, display:"flex", alignItems:"center", justifyContent:"center",
                 }}>•</button>
                 <button
-                  onClick={() => { if (!isComplete && inn.wickets < 10) setWicketModalOpen(true); }}
-                  disabled={isComplete || inn.wickets >= 10}
+                  onClick={() => { if (!isComplete && bowlerIdx !== null && inn.wickets < 10) setWicketModalOpen(true); }}
+                  disabled={isComplete || bowlerIdx === null || inn.wickets >= 10}
                   style={{
                     aspectRatio:"1", borderRadius:"var(--radius-sm)", fontSize:15, fontWeight:800,
                     border:"2px solid var(--red)", background:"var(--red-lt)", color:"var(--red)",
                     cursor:"pointer",
-                    opacity: (isComplete || inn.wickets>=10) ? 0.35 : 1,
+                    opacity: (isComplete || bowlerIdx === null || inn.wickets>=10) ? 0.35 : 1,
                     minHeight:58, display:"flex", alignItems:"center", justifyContent:"center",
                   }}>W</button>
               </div>
